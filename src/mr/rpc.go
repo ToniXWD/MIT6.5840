@@ -6,24 +6,49 @@ package mr
 // remember to capitalize all names.
 //
 
-import "os"
-import "strconv"
+import (
+	"errors"
+	"os"
+	"strconv"
+)
+
+type MsgType int
+
+const (
+	AskForTask MsgType = iota
+	MapTaskAlloc
+	ReduceTaskAlloc
+	MapSuccess
+	MapFailed
+	ReduceSuccess
+	ReduceFailed
+	Shutdown
+	Wait
+)
+
+var (
+	BadMsgType = errors.New("bad message type")
+	NoMoreTask = errors.New("no more task left")
+)
 
 //
 // example to show how to declare the arguments
 // and reply for an RPC.
 //
 
-type ExampleArgs struct {
-	X int
+type MessageSend struct {
+	MsgType MsgType
+	TaskID  int
 }
 
-type ExampleReply struct {
-	Y int
+type MessageReply struct {
+	MsgType  MsgType
+	NReduce  int
+	TaskID   int
+	TaskName string
 }
 
 // Add your RPC definitions here.
-
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
