@@ -36,12 +36,13 @@ type ReduceTaskInfo struct {
 
 type Coordinator struct {
 	// Your definitions here.
-	NReduce     int                     // the number of reduce tasks to use.
-	MapTasks    map[string]*MapTaskInfo //MapTaskInfo
-	muMap       sync.Mutex              // Map锁
-	ReduceTasks []*ReduceTaskInfo       // ReduceTaskInfo
-	muReduce    sync.Mutex              // Reduce 锁
-
+	NReduce       int                     // the number of reduce tasks to use.
+	MapTasks      map[string]*MapTaskInfo //MapTaskInfo
+	MapSuccess    bool                    // Map Task 是否全部完成
+	muMap         sync.Mutex              // Map 锁, 保护 MapTasks
+	ReduceTasks   []*ReduceTaskInfo       // ReduceTaskInfo
+	ReduceSuccess bool                    // Reduce Task 是否全部完成
+	muReduce      sync.Mutex              // Reduce 锁, 保护 ReduceTasks
 }
 
 func (c *Coordinator) initTask(files []string) {
@@ -67,92 +68,102 @@ func (c *Coordinator) AskForTask(req *MessageSend, reply *MessageReply) error {
 	if req.MsgType != AskForTask {
 		return BadMsgType
 	}
-	// 选择一个任务返回给worker
-	c.muMap.Lock()
+	if !c.MapSuccess {
+		// 选择一个 Map Task 返回给worker
 
-	count_map_success := 0
-	for fileName, taskinfo := range c.MapTasks {
-		alloc := false
+		c.muMap.Lock()
 
-		if taskinfo.Status == idle || taskinfo.Status == failed {
-			// 选择闲置或者失败的任务
-			alloc = true
-		} else if taskinfo.Status == running {
-			// 判断其是否超时, 超时则重新派发
-			curTime := time.Now().Unix()
-			if curTime-taskinfo.StartTime > 10 {
-				taskinfo.StartTime = curTime
+		count_map_success := 0
+		for fileName, taskinfo := range c.MapTasks {
+			alloc := false
+
+			if taskinfo.Status == idle || taskinfo.Status == failed {
+				// 选择闲置或者失败的任务
 				alloc = true
+			} else if taskinfo.Status == running {
+				// 判断其是否超时, 超时则重新派发
+				curTime := time.Now().Unix()
+				if curTime-taskinfo.StartTime > 10 {
+					taskinfo.StartTime = curTime
+					alloc = true
+				}
+			} else {
+				count_map_success++
 			}
-		} else {
-			count_map_success++
+
+			if alloc {
+				// 将未分配的任务和已经失败的任务分配给这个worker
+				reply.MsgType = MapTaskAlloc
+				reply.TaskName = fileName
+				reply.NReduce = c.NReduce
+				reply.TaskID = taskinfo.TaskId
+
+				// log.Printf("coordinator: apply Map Task: taskID = %v\n", reply.TaskID)
+
+				// 修改状态信息
+				taskinfo.Status = running
+				taskinfo.StartTime = time.Now().Unix()
+				c.muMap.Unlock()
+				return nil
+			}
 		}
 
-		if alloc {
-			// 将未分配的任务和已经失败的任务分配给这个worker
-			reply.MsgType = MapTaskAlloc
-			reply.TaskName = fileName
-			reply.NReduce = c.NReduce
-			reply.TaskID = taskinfo.TaskId
+		c.muMap.Unlock()
 
-			// log.Printf("coordinator: apply Map Task: taskID = %v\n", reply.TaskID)
-
-			// 修改状态信息
-			taskinfo.Status = running
-			taskinfo.StartTime = time.Now().Unix()
-			c.muMap.Unlock()
+		if count_map_success < len(c.MapTasks) {
+			// map任务没有可以分配的, 但都还未完成
+			reply.MsgType = Wait
 			return nil
+		} else {
+			c.MapSuccess = true
 		}
 	}
 
-	c.muMap.Unlock()
+	if !c.ReduceSuccess {
+		// 选择一个 Reduce Task 返回给worker
+		c.muReduce.Lock()
 
-	if count_map_success < len(c.MapTasks) {
-		// map任务没有可以分配的, 但都还未完成
-		reply.MsgType = Wait
-		return nil
-	}
-
-	c.muReduce.Lock()
-
-	count_reduce_success := 0
-	// 运行到这里说明map任务都已经完成
-	for idx, taskinfo := range c.ReduceTasks {
-		alloc := false
-		if taskinfo.Status == idle || taskinfo.Status == failed {
-			alloc = true
-		} else if taskinfo.Status == running {
-			// 判断其是否超时, 超时则重新派发
-			curTime := time.Now().Unix()
-			if curTime-taskinfo.StartTime > 10 {
-				taskinfo.StartTime = curTime
+		count_reduce_success := 0
+		// 运行到这里说明map任务都已经完成
+		for idx, taskinfo := range c.ReduceTasks {
+			alloc := false
+			if taskinfo.Status == idle || taskinfo.Status == failed {
 				alloc = true
+			} else if taskinfo.Status == running {
+				// 判断其是否超时, 超时则重新派发
+				curTime := time.Now().Unix()
+				if curTime-taskinfo.StartTime > 10 {
+					taskinfo.StartTime = curTime
+					alloc = true
+				}
+			} else {
+				count_reduce_success++
 			}
-		} else {
-			count_reduce_success++
+
+			if alloc {
+				// 分配给其一个Reduce任务
+				reply.MsgType = ReduceTaskAlloc
+				reply.TaskID = idx
+
+				// log.Printf("coordinator: apply Reduce Task: taskID = %v\n", reply.TaskID)
+
+				taskinfo.Status = running
+				taskinfo.StartTime = time.Now().Unix()
+
+				c.muReduce.Unlock()
+				return nil
+			}
 		}
 
-		if alloc {
-			// 分配给其一个Reduce任务
-			reply.MsgType = ReduceTaskAlloc
-			reply.TaskID = idx
+		c.muReduce.Unlock()
 
-			// log.Printf("coordinator: apply Reduce Task: taskID = %v\n", reply.TaskID)
-
-			taskinfo.Status = running
-			taskinfo.StartTime = time.Now().Unix()
-
-			c.muReduce.Unlock()
+		if count_reduce_success < len(c.ReduceTasks) {
+			// reduce任务没有可以分配的, 但都还未完成
+			reply.MsgType = Wait
 			return nil
+		} else {
+			c.ReduceSuccess = true
 		}
-	}
-
-	c.muReduce.Unlock()
-
-	if count_reduce_success < len(c.MapTasks) {
-		// reduce任务没有可以分配的, 但都还未完成
-		reply.MsgType = Wait
-		return nil
 	}
 
 	// 运行到这里说明所有任务都已经完成
@@ -239,7 +250,7 @@ func (c *Coordinator) Done() bool {
 
 	// fmt.Println("Coordinator: All reduce task finished")
 
-	// time.Sleep(time.Second * 5)
+	time.Sleep(time.Second * 3)
 
 	return true
 }
