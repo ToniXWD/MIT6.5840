@@ -12,6 +12,7 @@ import (
 
 type taskStatus int
 
+// Task 状态
 const (
 	idle     taskStatus = iota // 闲置未分配
 	running                    // 正在运行
@@ -19,23 +20,26 @@ const (
 	failed                     //失败
 )
 
+// Map Task 执行状态
 type MapTaskInfo struct {
-	TaskId    int
-	Status    taskStatus
-	StartTime int64
+	TaskId    int        // Task 序号
+	Status    taskStatus // 执行状态
+	StartTime int64      // 开始执行时间戳
 }
 
+// Reduce Task 执行状态
 type ReduceTaskInfo struct {
-	Status    taskStatus
-	StartTime int64
+	// ReduceTask的 序号 由数组下标决定, 不进行额外存储
+	Status    taskStatus // 执行状态
+	StartTime int64      // 开始执行时间戳
 }
 
 type Coordinator struct {
 	// Your definitions here.
-	NReduce     int // the number of reduce tasks to use.
-	MapTasks    map[string]*MapTaskInfo
-	mu          sync.Mutex
-	ReduceTasks []*ReduceTaskInfo
+	NReduce     int                     // the number of reduce tasks to use.
+	MapTasks    map[string]*MapTaskInfo //MapTaskInfo
+	mu          sync.Mutex              // 一把大锁保平安
+	ReduceTasks []*ReduceTaskInfo       // ReduceTaskInfo
 }
 
 func (c *Coordinator) initTask(files []string) {
@@ -212,6 +216,8 @@ func (c *Coordinator) Done() bool {
 	}
 
 	// fmt.Println("Coordinator: All reduce task finished")
+
+	// time.Sleep(time.Second * 5)
 
 	return true
 }

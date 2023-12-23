@@ -14,38 +14,33 @@ import (
 
 type MsgType int
 
-const (
-	AskForTask MsgType = iota
-	MapTaskAlloc
-	ReduceTaskAlloc
-	MapSuccess
-	MapFailed
-	ReduceSuccess
-	ReduceFailed
-	Shutdown
-	Wait
-)
-
 var (
 	BadMsgType = errors.New("bad message type")
 	NoMoreTask = errors.New("no more task left")
 )
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
+const (
+	AskForTask      MsgType = iota // `Worker`请求任务
+	MapTaskAlloc                   // `Coordinator`分配`Map`任务
+	ReduceTaskAlloc                // `Coordinator`分配`Reduce`任务
+	MapSuccess                     // `Worker`报告`Map`任务的执行成功
+	MapFailed                      // `Worker`报告`Map`任务的执行失败
+	ReduceSuccess                  // `Worker`报告`Reduce`任务的执行成功
+	ReduceFailed                   //`Worker`报告`Reduce`任务的执行失败
+	Shutdown                       // `Coordinator`告知`Worker`退出（所有任务执行成功）
+	Wait                           //`Coordinator`告知`Worker`休眠（暂时没有任务需要执行）
+)
 
 type MessageSend struct {
 	MsgType MsgType
-	TaskID  int
+	TaskID  int // `Worker`回复的消息类型如MapSuccess等需要使用
 }
 
 type MessageReply struct {
 	MsgType  MsgType
-	NReduce  int
-	TaskID   int
-	TaskName string
+	NReduce  int    // MapTaskAlloc需要告诉Map Task 切分的数量
+	TaskID   int    // 任务Id用于选取输入文件
+	TaskName string // MapSuccess专用: 告知输入.txt文件的名字
 }
 
 // Add your RPC definitions here.

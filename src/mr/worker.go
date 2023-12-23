@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"log"
 	"net/rpc"
 	"os"
 	"sort"
@@ -118,6 +117,7 @@ func HandleMapTask(reply *MessageReply, mapf func(string, string) []KeyValue) er
 		}
 		ofile.Close()
 	}
+
 	return nil
 }
 
@@ -173,6 +173,7 @@ func HandleReduceTask(reply *MessageReply, reducef func(string, []string) string
 }
 
 func CallForReportStatus(succesType MsgType, taskID int) error {
+	// 报告Task执行情况
 	// declare an argument structure.
 	args := MessageSend{
 		MsgType: succesType,
@@ -195,7 +196,7 @@ func CallForReportStatus(succesType MsgType, taskID int) error {
 //
 // the RPC argument and reply types are defined in rpc.go.
 func CallForTask() *MessageReply {
-
+	// 请求一个Task
 	// declare an argument structure.
 	args := MessageSend{
 		MsgType: AskForTask,
@@ -205,12 +206,8 @@ func CallForTask() *MessageReply {
 	reply := MessageReply{}
 
 	// send the RPC request, wait for the reply.
-	// the "Coordinator.Example" tells the
-	// receiving server that we'd like to call
-	// the Example() method of struct Coordinator.
 	err := call("Coordinator.AskForTask", &args, &reply)
 	if err == nil {
-		// reply.Y should be 100.
 		// fmt.Printf("TaskName %v, NReduce %v, taskID %v\n", reply.TaskName, reply.NReduce, reply.TaskID)
 		return &reply
 	} else {
@@ -227,7 +224,8 @@ func call(rpcname string, args interface{}, reply interface{}) error {
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		// log.Fatal("dialing:", err)
+		os.Exit(-1)
 	}
 	defer c.Close()
 
