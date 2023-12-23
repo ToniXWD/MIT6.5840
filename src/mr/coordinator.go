@@ -38,8 +38,10 @@ type Coordinator struct {
 	// Your definitions here.
 	NReduce     int                     // the number of reduce tasks to use.
 	MapTasks    map[string]*MapTaskInfo //MapTaskInfo
-	mu          sync.Mutex              // 一把大锁保平安
+	muMap       sync.Mutex              // Map锁
 	ReduceTasks []*ReduceTaskInfo       // ReduceTaskInfo
+	muReduce    sync.Mutex              // Reduce 锁
+
 }
 
 func (c *Coordinator) initTask(files []string) {
@@ -66,8 +68,7 @@ func (c *Coordinator) AskForTask(req *MessageSend, reply *MessageReply) error {
 		return BadMsgType
 	}
 	// 选择一个任务返回给worker
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.muMap.Lock()
 
 	count_map_success := 0
 	for fileName, taskinfo := range c.MapTasks {
@@ -99,15 +100,20 @@ func (c *Coordinator) AskForTask(req *MessageSend, reply *MessageReply) error {
 			// 修改状态信息
 			taskinfo.Status = running
 			taskinfo.StartTime = time.Now().Unix()
+			c.muMap.Unlock()
 			return nil
 		}
 	}
+
+	c.muMap.Unlock()
 
 	if count_map_success < len(c.MapTasks) {
 		// map任务没有可以分配的, 但都还未完成
 		reply.MsgType = Wait
 		return nil
 	}
+
+	c.muReduce.Lock()
 
 	count_reduce_success := 0
 	// 运行到这里说明map任务都已经完成
@@ -135,9 +141,13 @@ func (c *Coordinator) AskForTask(req *MessageSend, reply *MessageReply) error {
 
 			taskinfo.Status = running
 			taskinfo.StartTime = time.Now().Unix()
+
+			c.muReduce.Unlock()
 			return nil
 		}
 	}
+
+	c.muReduce.Unlock()
 
 	if count_reduce_success < len(c.MapTasks) {
 		// reduce任务没有可以分配的, 但都还未完成
@@ -153,30 +163,42 @@ func (c *Coordinator) AskForTask(req *MessageSend, reply *MessageReply) error {
 
 // 更新任务状态
 func (c *Coordinator) NoticeResult(req *MessageSend, reply *MessageReply) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if req.MsgType == MapSuccess {
+		c.muMap.Lock()
 		for _, v := range c.MapTasks {
 			if v.TaskId == req.TaskID {
 				v.Status = finished
 				// log.Printf("coordinator: map task%v finished\n", v.TaskId)
-				break
+				c.muMap.Unlock()
+				return nil
 			}
 		}
+		c.muMap.Unlock()
 	} else if req.MsgType == ReduceSuccess {
+		c.muReduce.Lock()
 		c.ReduceTasks[req.TaskID].Status = finished
+		c.muReduce.Unlock()
+		return nil
 		// log.Printf("coordinator: reduce task%v finished\n", req.TaskID)
 	} else if req.MsgType == MapFailed {
+		c.muMap.Lock()
 		for _, v := range c.MapTasks {
-			if v.TaskId == req.TaskID {
+			if v.TaskId == req.TaskID && v.Status == running {
 				v.Status = failed
 				// log.Printf("coordinator: map task%v failed\n", v.TaskId)
-				break
+				c.muMap.Unlock()
+				return nil
 			}
 		}
+		c.muMap.Unlock()
 	} else if req.MsgType == ReduceFailed {
-		c.ReduceTasks[req.TaskID].Status = failed
-		// log.Printf("coordinator: reduce task%v failed\n", req.TaskID)
+		c.muReduce.Lock()
+		if c.ReduceTasks[req.TaskID].Status == running {
+			c.ReduceTasks[req.TaskID].Status = failed
+			// log.Printf("coordinator: reduce task%v failed\n", req.TaskID)
+		}
+		c.muReduce.Unlock()
+		return nil
 	}
 	return nil
 }
