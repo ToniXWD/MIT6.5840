@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"io/ioutil"
 	"net/rpc"
 	"os"
 	"sort"
@@ -82,40 +83,38 @@ func HandleMapTask(reply *MessageReply, mapf func(string, string) []KeyValue) er
 		return err
 	}
 
-	// 进行mapf
 	kva := mapf(reply.TaskName, string(content))
 	sort.Sort(ByKey(kva))
 
-	oname_prefix := "mr-out-" + strconv.Itoa(reply.TaskID) + "-"
+	tempFiles := make([]*os.File, reply.NReduce)
+	encoders := make([]*json.Encoder, reply.NReduce)
 
-	key_group := map[string][]string{}
 	for _, kv := range kva {
-		key_group[kv.Key] = append(key_group[kv.Key], kv.Value)
+		redId := ihash(kv.Key) % reply.NReduce
+		if encoders[redId] == nil {
+			tempFile, err := ioutil.TempFile("", fmt.Sprintf("mr-map-tmp-%d", redId))
+			if err != nil {
+				return err
+			}
+			defer tempFile.Close()
+			tempFiles[redId] = tempFile
+			encoders[redId] = json.NewEncoder(tempFile)
+		}
+		err := encoders[redId].Encode(&kv)
+		if err != nil {
+			return err
+		}
 	}
 
-	// 先清理可能存在的垃圾
-	// TODO: 原子重命名的方法
-	_ = DelFileByMapId(reply.TaskID, "./")
-
-	for key, values := range key_group {
-		redId := ihash(key)
-		oname := oname_prefix + strconv.Itoa(redId%reply.NReduce)
-		var ofile *os.File
-		if _, err := os.Stat(oname); os.IsNotExist(err) {
-			// 文件夹不存在
-			ofile, _ = os.Create(oname)
-		} else {
-			ofile, _ = os.OpenFile(oname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		}
-		enc := json.NewEncoder(ofile)
-		for _, value := range values {
-			err := enc.Encode(&KeyValue{Key: key, Value: value})
-			if err != nil {
-				ofile.Close()
+	for i, file := range tempFiles {
+		if file != nil {
+			fileName := file.Name()
+			file.Close()
+			newName := fmt.Sprintf("mr-out-%d-%d", reply.TaskID, i)
+			if err := os.Rename(fileName, newName); err != nil {
 				return err
 			}
 		}
-		ofile.Close()
 	}
 
 	return nil
