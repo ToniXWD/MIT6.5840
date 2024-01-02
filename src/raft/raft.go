@@ -21,6 +21,7 @@ import (
 	//	"bytes"
 
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,7 +64,7 @@ const (
 
 const (
 	HeartBeatTimeOut = 101
-	ElectTimeOutBase = 1000
+	ElectTimeOutBase = 500
 
 	ElectTimeOutCheckInterval = time.Duration(350) * time.Millisecond // 检查是否超时的间隔
 )
@@ -95,6 +96,10 @@ type Raft struct {
 
 	muVote    sync.Mutex // 保护投票数据
 	voteCount int
+}
+
+func (rf *Raft) Print() {
+	DPrintf("raft%v:{currentTerm=%v, role=%v, votedFor=%v}\n", rf.me, rf.currentTerm, rf.role, rf.votedFor)
 }
 
 // return currentTerm and whether this server
@@ -241,10 +246,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// 代码到这里时, args.Term >= rf.currentTerm
 
+	if args.Term > rf.currentTerm {
+		// 已经是新一轮的term, 之前的投票记录作废
+		rf.votedFor = -1
+	}
+
 	// at least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		// 首先确保是没投过票的
-		if args.Term > rf.currentTerm || args.LastLogIndex >= len(rf.log)-1 && args.LastLogTerm >= rf.log[len(rf.log)-1].Term {
+		if args.Term > rf.currentTerm ||
+			(args.LastLogIndex >= len(rf.log)-1 && args.LastLogTerm >= rf.log[len(rf.log)-1].Term) {
 			// 2. If votedFor is null or candidateId, and candidate’s log is least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 			rf.currentTerm = args.Term
 			reply.Term = rf.currentTerm
@@ -264,7 +275,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.Term = rf.currentTerm
 	rf.mu.Unlock()
 	reply.VoteGranted = false
-
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -304,7 +314,6 @@ func (rf *Raft) handleSelfVote(serverTo int, args *RequestVoteArgs) {
 			DPrintf("server %v 成为新的leader\n", rf.me)
 			rf.mu.Lock()
 			rf.role = Leader
-			rf.votedFor = -1
 			rf.mu.Unlock()
 			go rf.SendHeartBeats()
 		}
@@ -381,7 +390,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term > rf.currentTerm {
 		// 新leader的第一个消息
 		rf.currentTerm = args.Term // 更新iterm
-		rf.votedFor = -1           // 更新投票记录为未投票
+		rf.votedFor = -1           // 易错点: 更新投票记录为未投票
 	}
 
 	// 代码执行到这里就是 args.Term == rf.currentTerm 的情况
@@ -470,6 +479,7 @@ func (rf *Raft) SendHeartBeats() {
 }
 
 func (rf *Raft) ticker() {
+	r := rand.New(rand.NewSource(int64(rf.me)))
 	for !rf.killed() {
 
 		// Your code here (2A)
@@ -477,9 +487,9 @@ func (rf *Raft) ticker() {
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
-		randTimeOut := GetRandomElectTimeOut()
+		timeout := int(r.Float64()*(500.0) + ElectTimeOutBase)
 		rf.mu.Lock()
-		if time.Since(rf.timeStamp) > randTimeOut && rf.role != Leader {
+		if rf.role != Leader && time.Since(rf.timeStamp) > time.Duration(timeout)*time.Millisecond {
 			// 超时
 			go rf.Elect()
 		}
