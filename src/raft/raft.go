@@ -63,10 +63,10 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 101
+	HeartBeatTimeOut = 150
 	ElectTimeOutBase = 500
 
-	ElectTimeOutCheckInterval = time.Duration(350) * time.Millisecond // 检查是否超时的间隔
+	ElectTimeOutCheckInterval = time.Duration(300) * time.Millisecond // 检查是否超时的间隔
 )
 
 // A Go object implementing a single Raft peer.

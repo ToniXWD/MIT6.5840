@@ -1,0 +1,15 @@
+=== RUN   TestInitialElection2A
+Test (2A): initial election ...
+  ... Passed --   3.6  3   42   10400    0
+--- PASS: TestInitialElection2A (3.56s)
+=== RUN   TestReElection2A
+Test (2A): election after network failure ...
+  ... Passed --   5.9  3  146   28640    0
+--- PASS: TestReElection2A (5.90s)
+=== RUN   TestManyElections2A
+Test (2A): multiple elections ...
+    config.go:461: expected one leader, got none
+--- FAIL: TestManyElections2A (10.97s)
+FAIL
+exit status 1
+FAIL	6.5840/raft	20.430s
