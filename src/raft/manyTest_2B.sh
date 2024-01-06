@@ -13,7 +13,7 @@ do
     echo "Running test iteration $i of $max_tests..."
     
     # 运行 go 测试命令
-    go test -v -run 2A &> output2A.log
+    go test -v -run 2B &> output2B.log
     
     # 检查 go 命令的退出状态
     if [ "$?" -eq 0 ]; then
@@ -21,12 +21,12 @@ do
         success_count=$((success_count+1))
         echo "Test iteration $i passed."
         # 如果想保存通过的测试日志，取消下面行的注释
-        # mv output2A.log "success_$i.log"
+        # mv output2B.log "success_$i.log"
     else
         # 测试失败
         fail_count=$((fail_count+1))
-        echo "Test iteration $i failed, check 'failure2A_$i.log' for details."
-        mv output2A.log "failure2A_$i.log"
+        echo "Test iteration $i failed, check 'failure2B_$i.log' for details."
+        mv output2B.log "failure2B_$i.log"
     fi
 done
 

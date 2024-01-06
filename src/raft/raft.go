@@ -66,9 +66,7 @@ const (
 	HeartBeatTimeOut = 150
 	ElectTimeOutBase = 500
 
-	RetryTimeOut              = time.Duration(50) * time.Millisecond  // 重试超时为50ms
 	ElectTimeOutCheckInterval = time.Duration(300) * time.Millisecond // 检查是否超时的间隔
-	CommitCheckTimeInterval   = time.Duration(100) * time.Millisecond // 检查是否可以commit的间隔
 )
 
 // A Go object implementing a single Raft peer.
@@ -91,8 +89,9 @@ type Raft struct {
 	matchIndex []int
 
 	// 以下不是Figure 2中的field
-	timeStamp time.Time // 记录收到消息的时间(心跳或append)
-	role      int
+	timer *time.Timer
+	rd    *rand.Rand
+	role  int
 
 	muVote    sync.Mutex // 保护投票数据
 	voteCount int
@@ -100,10 +99,17 @@ type Raft struct {
 	commitIndex int
 	lastApplied int
 	applyCh     chan ApplyMsg
+
+	condApply sync.Cond
 }
 
 func (rf *Raft) Print() {
 	DPrintf("raft%v:{currentTerm=%v, role=%v, votedFor=%v}\n", rf.me, rf.currentTerm, rf.role, rf.votedFor)
+}
+
+func (rf *Raft) ResetTimer() {
+	rdTimeOut := GetRandomElectTimeOut(rf.rd)
+	rf.timer.Reset(time.Duration(rdTimeOut) * time.Millisecond)
 }
 
 // return currentTerm and whether this server
@@ -233,6 +239,9 @@ func (rf *Raft) CommitChecker() {
 	// 检查是否有新的commit
 	for !rf.killed() {
 		rf.mu.Lock()
+		for rf.commitIndex <= rf.lastApplied {
+			rf.condApply.Wait()
+		}
 		for rf.commitIndex > rf.lastApplied {
 			rf.lastApplied += 1
 			msg := &ApplyMsg{
@@ -242,22 +251,10 @@ func (rf *Raft) CommitChecker() {
 			}
 			rf.applyCh <- *msg
 			DPrintf("server %v 准备将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
-
 		}
 		rf.mu.Unlock()
-		time.Sleep(CommitCheckTimeInterval)
 	}
 }
-
-// func (rf *Raft) ApplyCommitEntry() {
-// 	time.Sleep(CommitCheckTimeInterval)
-// 	for !rf.killed() {
-// 		msg := <-rf.applyCh
-// 		if msg.CommandValid {
-// 			DPrintf("server %v 将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
-// 		}
-// 	}
-// }
 
 type AppendEntriesArgs struct {
 	// Your data here (2A, 2B).
@@ -302,7 +299,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 代码执行到这里就是 args.Term >= rf.currentTerm 的情况
 
 	// 不是旧 leader的话需要记录访问时间
-	rf.timeStamp = time.Now()
+	// rf.timeStamp = time.Now()
+	rf.ResetTimer()
 
 	if args.Term > rf.currentTerm {
 		// 新leader的第一个消息
@@ -351,6 +349,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.LeaderCommit > rf.commitIndex {
 		// 5.If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 		rf.commitIndex = int(math.Min(float64(args.LeaderCommit), float64(len(rf.log)-1)))
+		rf.condApply.Signal() // 唤醒检查commit的协程
 	}
 	rf.mu.Unlock()
 }
@@ -362,9 +361,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 	reply := &AppendEntriesReply{}
 	ok := rf.sendAppendEntries(serverTo, args, reply)
 	if !ok {
-		// RPC发送失败, 重试
-		// time.Sleep(RetryTimeOut)
-		// continue
 		return
 	}
 
@@ -397,10 +393,14 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 			}
 			if count >= len(rf.peers)/2 {
 				// 如果至少一半的follower回复了成功, 更新commitIndex
-				rf.commitIndex = N
 				break
 			}
 			N -= 1
+		}
+
+		if N > rf.commitIndex {
+			rf.commitIndex = N
+			rf.condApply.Signal() // 唤醒检查commit的协程
 		}
 
 		rf.mu.Unlock()
@@ -415,7 +415,8 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		rf.currentTerm = reply.Term
 		rf.role = Follower
 		rf.votedFor = -1
-		rf.timeStamp = time.Now()
+		// rf.timeStamp = time.Now()
+		rf.ResetTimer()
 		rf.mu.Unlock()
 		return
 	}
@@ -425,8 +426,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		// 将nextIndex自减再重试
 		rf.nextIndex[serverTo] -= 1
 		rf.mu.Unlock()
-		// time.Sleep(RetryTimeOut)
-		// continue
 		return
 	}
 	// }
@@ -554,7 +553,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.Term = rf.currentTerm
 			rf.votedFor = args.CandidateId
 			rf.role = Follower
-			rf.timeStamp = time.Now()
+			// rf.timeStamp = time.Now()
+			rf.ResetTimer()
 
 			rf.mu.Unlock()
 			reply.VoteGranted = true
@@ -619,7 +619,7 @@ func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs) {
 		// 需要重新初始化nextIndex和matchIndex
 		for i := 0; i < len(rf.nextIndex); i++ {
 			rf.nextIndex[i] = len(rf.log)
-			rf.matchIndex[i] = 0
+			rf.matchIndex[i] = len(rf.log) - 1
 		}
 		rf.mu.Unlock()
 		go rf.SendHeartBeats()
@@ -631,11 +631,12 @@ func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs) {
 func (rf *Raft) Elect() {
 	rf.mu.Lock()
 
-	rf.currentTerm += 1       // 自增term
-	rf.role = Candidate       // 成为候选人
-	rf.votedFor = rf.me       // 给自己投票
-	rf.voteCount = 1          // 自己有一票
-	rf.timeStamp = time.Now() // 自己给自己投票也算一种消息
+	rf.currentTerm += 1 // 自增term
+	rf.role = Candidate // 成为候选人
+	rf.votedFor = rf.me // 给自己投票
+	rf.voteCount = 1    // 自己有一票
+	// rf.timeStamp = time.Now() // 自己给自己投票也算一种消息
+	rf.ResetTimer()
 
 	args := &RequestVoteArgs{
 		Term:         rf.currentTerm,
@@ -654,7 +655,6 @@ func (rf *Raft) Elect() {
 }
 
 func (rf *Raft) ticker() {
-	rd := rand.New(rand.NewSource(int64(rf.me)))
 	for !rf.killed() {
 
 		// Your code here (2A)
@@ -662,9 +662,9 @@ func (rf *Raft) ticker() {
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
-		rdTimeOut := GetRandomElectTimeOut(rd)
+		<-rf.timer.C
 		rf.mu.Lock()
-		if rf.role != Leader && time.Since(rf.timeStamp) > time.Duration(rdTimeOut)*time.Millisecond {
+		if rf.role != Leader {
 			// 超时
 			go rf.Elect()
 		}
@@ -694,9 +694,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.log = append(rf.log, Entry{Term: 0})
 	rf.nextIndex = make([]int, len(peers))
 	rf.matchIndex = make([]int, len(peers))
-	rf.timeStamp = time.Now()
+	// rf.timeStamp = time.Now()
 	rf.role = Follower
 	rf.applyCh = applyCh
+	rf.condApply = *sync.NewCond(&rf.mu)
+	rf.rd = rand.New(rand.NewSource(int64(rf.me)))
+	rf.timer = time.NewTimer(0)
 
 	for i := 0; i < len(rf.nextIndex); i++ {
 		rf.nextIndex[i] = 1 // raft中的index是从1开始的
@@ -704,6 +707,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
+
+	rf.ResetTimer()
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
