@@ -2,3 +2,7 @@ pkg/
 api.key
 .api.key.trimmed
 *-handin.tar.gz
+src/raft/TestBackup2B.log
+src/raft/output2B.log
+.idea/
+src/raft/*.log

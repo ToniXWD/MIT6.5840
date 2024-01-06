@@ -63,11 +63,10 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 150
-	ElectTimeOutBase = 500
+	HeartBeatTimeOut = 101
+	ElectTimeOutBase = 450
 
-	RetryTimeOut              = time.Duration(50) * time.Millisecond  // 重试超时为50ms
-	ElectTimeOutCheckInterval = time.Duration(300) * time.Millisecond // 检查是否超时的间隔
+	ElectTimeOutCheckInterval = time.Duration(250) * time.Millisecond // 检查是否超时的间隔
 	CommitCheckTimeInterval   = time.Duration(100) * time.Millisecond // 检查是否可以commit的间隔
 )
 
@@ -111,6 +110,8 @@ func (rf *Raft) Print() {
 func (rf *Raft) GetState() (int, bool) {
 
 	// Your code here (2A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	return rf.currentTerm, rf.role == Leader
 }
 
@@ -208,27 +209,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	return len(rf.log) - 1, rf.currentTerm, true
 }
 
-// func (rf *Raft) broadCastAppendEntries(entry *Entry) {
-// 	rf.mu.Lock()
-// 	defer rf.mu.Unlock()
-// 	for i := 0; i < len(rf.log) && i != rf.me; i++ {
-// 		if len(rf.log)-1 < rf.nextIndex[i] {
-// 			// 如果没有新的log需要发送, 跳过
-// 			continue
-// 		}
-// 		args := &AppendEntriesArgs{
-// 			Term:         rf.currentTerm,
-// 			LeaderId:     rf.me,
-// 			PrevLogIndex: rf.nextIndex[i] - 1,
-// 			PrevLogTerm:  rf.log[rf.nextIndex[i]-1].Term,
-// 			Entries:      rf.log[rf.nextIndex[i]:],
-// 			LeaderCommit: rf.commitIndex,
-// 		}
-// 		reply := &AppendEntriesReply{}
-// 		go rf.handleRealAppendEntries(i, args, reply)
-// 	}
-// }
-
 func (rf *Raft) CommitChecker() {
 	// 检查是否有新的commit
 	for !rf.killed() {
@@ -242,22 +222,11 @@ func (rf *Raft) CommitChecker() {
 			}
 			rf.applyCh <- *msg
 			DPrintf("server %v 准备将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
-
 		}
 		rf.mu.Unlock()
 		time.Sleep(CommitCheckTimeInterval)
 	}
 }
-
-// func (rf *Raft) ApplyCommitEntry() {
-// 	time.Sleep(CommitCheckTimeInterval)
-// 	for !rf.killed() {
-// 		msg := <-rf.applyCh
-// 		if msg.CommandValid {
-// 			DPrintf("server %v 将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
-// 		}
-// 	}
-// }
 
 type AppendEntriesArgs struct {
 	// Your data here (2A, 2B).
@@ -362,9 +331,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 	reply := &AppendEntriesReply{}
 	ok := rf.sendAppendEntries(serverTo, args, reply)
 	if !ok {
-		// RPC发送失败, 重试
-		// time.Sleep(RetryTimeOut)
-		// continue
 		return
 	}
 
@@ -386,7 +352,7 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		N := len(rf.log) - 1
 
 		for N > rf.commitIndex {
-			count := 0
+			count := 1 // 1表示包括了leader自己
 			for i := 0; i < len(rf.peers); i++ {
 				if i == rf.me {
 					continue
@@ -395,7 +361,7 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 					count += 1
 				}
 			}
-			if count >= len(rf.peers)/2 {
+			if count > len(rf.peers)/2 {
 				// 如果至少一半的follower回复了成功, 更新commitIndex
 				rf.commitIndex = N
 				break
@@ -409,7 +375,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 
 	if reply.Term > rf.currentTerm {
 		// 回复了更新的term, 表示自己已经不是leader了
-		// 易错点: 这里也应该进行重新选举而不是直接转化为follower, 因为这可能是来自一个孤立节点的返回值
 		DPrintf("server %v 旧的leader收到了来自 server % v 的心跳函数中更新的term: %v, 转化为Follower\n", rf.me, serverTo, reply.Term)
 
 		rf.currentTerm = reply.Term
@@ -542,6 +507,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term > rf.currentTerm {
 		// 已经是新一轮的term, 之前的投票记录作废
 		rf.votedFor = -1
+		rf.currentTerm = args.Term // 易错点, 需要将currentTerm提升到最新的term
+		rf.role = Follower
 	}
 
 	// at least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
