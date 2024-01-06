@@ -63,10 +63,8 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 150
-	ElectTimeOutBase = 500
-
-	ElectTimeOutCheckInterval = time.Duration(300) * time.Millisecond // 检查是否超时的间隔
+	HeartBeatTimeOut = 125
+	ElectTimeOutBase = 800
 )
 
 // A Go object implementing a single Raft peer.
@@ -117,6 +115,8 @@ func (rf *Raft) ResetTimer() {
 func (rf *Raft) GetState() (int, bool) {
 
 	// Your code here (2A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	return rf.currentTerm, rf.role == Leader
 }
 
@@ -560,6 +560,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = true
 			DPrintf("server %v 同意向 server %v投票, args = %+v\n", rf.me, args.CandidateId, args)
 			return
+		} else {
+			if args.LastLogTerm < rf.log[len(rf.log)-1].Term {
+				DPrintf("server %v 拒绝向 server %v投票: 更旧的LastLogTerm, args = %+v\n", rf.me, args.CandidateId, args)
+			} else {
+				DPrintf("server %v 拒绝向 server %v投票: 更短的Log, args = %+v\n", rf.me, args.CandidateId, args)
+			}
 		}
 	} else {
 		DPrintf("server %v 拒绝向 server %v投票: 已投票, args = %+v\n", rf.me, args.CandidateId, args)
@@ -669,7 +675,6 @@ func (rf *Raft) ticker() {
 			go rf.Elect()
 		}
 		rf.mu.Unlock()
-		time.Sleep(ElectTimeOutCheckInterval)
 	}
 }
 
