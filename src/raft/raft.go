@@ -21,6 +21,7 @@ import (
 	//	"bytes"
 
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,10 +63,10 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 101
-	ElectTimeOutBase = 1000
+	HeartBeatTimeOut = 150
+	ElectTimeOutBase = 500
 
-	ElectTimeOutCheckInterval = time.Duration(350) * time.Millisecond // 检查是否超时的间隔
+	ElectTimeOutCheckInterval = time.Duration(300) * time.Millisecond // 检查是否超时的间隔
 )
 
 // A Go object implementing a single Raft peer.
@@ -95,6 +96,10 @@ type Raft struct {
 
 	muVote    sync.Mutex // 保护投票数据
 	voteCount int
+}
+
+func (rf *Raft) Print() {
+	DPrintf("raft%v:{currentTerm=%v, role=%v, votedFor=%v}\n", rf.me, rf.currentTerm, rf.role, rf.votedFor)
 }
 
 // return currentTerm and whether this server
@@ -241,10 +246,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// 代码到这里时, args.Term >= rf.currentTerm
 
+	if args.Term > rf.currentTerm {
+		// 已经是新一轮的term, 之前的投票记录作废
+		rf.votedFor = -1
+	}
+
 	// at least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		// 首先确保是没投过票的
-		if args.Term > rf.currentTerm || args.LastLogIndex >= len(rf.log)-1 && args.LastLogTerm >= rf.log[len(rf.log)-1].Term {
+		if args.Term > rf.currentTerm ||
+			(args.LastLogIndex >= len(rf.log)-1 && args.LastLogTerm >= rf.log[len(rf.log)-1].Term) {
 			// 2. If votedFor is null or candidateId, and candidate’s log is least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
 			rf.currentTerm = args.Term
 			reply.Term = rf.currentTerm
@@ -264,7 +275,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	reply.Term = rf.currentTerm
 	rf.mu.Unlock()
 	reply.VoteGranted = false
-
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -286,46 +296,67 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) handleSelfVote(serverTo int, args *RequestVoteArgs) {
-	reply := &RequestVoteReply{}
-	sendArgs := *args // 复制一份args结构体, (可能有未知的错误)
-	ok := rf.sendRequestVote(serverTo, &sendArgs, reply)
-	// if ok {
-	// 	DPrintf("server %v 向 server %v 发送投票请求成功, \n\targs:%+v", rf.me, serverTo, sendArgs)
-	// } else {
-	// 	DPrintf("server %v 向 server %v 发送投票请求失败, \n\targs:%+v", rf.me, serverTo, sendArgs)
-	// }
-
-	rf.muVote.Lock()
-	isOver := rf.voteCount > len(rf.peers)/2
-	if ok && !isOver {
-		rf.voteCount += 1
-		if rf.voteCount > len(rf.peers)/2 {
-			DPrintf("server %v 成为新的leader\n", rf.me)
-			rf.mu.Lock()
-			rf.role = Leader
-			rf.votedFor = -1
-			rf.mu.Unlock()
-			go rf.SendHeartBeats()
-		}
+func (rf *Raft) GetVoteAnswer(server int, args *RequestVoteArgs) bool {
+	sendArgs := *args
+	reply := RequestVoteReply{}
+	ok := rf.sendRequestVote(server, &sendArgs, &reply)
+	if !ok {
+		return false
 	}
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	if sendArgs.Term != rf.currentTerm {
+		// 易错点: 函数调用的间隙被修改了
+		return false
+	}
+
+	if reply.Term > rf.currentTerm {
+		// 已经是过时的term了
+		rf.currentTerm = reply.Term
+		rf.votedFor = -1
+		rf.role = Follower
+	}
+	return reply.VoteGranted
+}
+
+func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs) {
+	voteAnswer := rf.GetVoteAnswer(serverTo, args)
+	if !voteAnswer {
+		return
+	}
+	rf.muVote.Lock()
+	if rf.voteCount > len(rf.peers)/2 {
+		rf.muVote.Unlock()
+		return
+	}
+
+	rf.voteCount += 1
+	if rf.voteCount > len(rf.peers)/2 {
+		rf.mu.Lock()
+		if rf.role == Follower {
+			// 有另外一个投票的协程收到了更新的term而更改了自身状态为Follower
+			rf.mu.Unlock()
+			rf.muVote.Unlock()
+			return
+		}
+		rf.role = Leader
+		rf.mu.Unlock()
+		go rf.SendHeartBeats()
+	}
+
 	rf.muVote.Unlock()
 }
 
 func (rf *Raft) Elect() {
 	rf.mu.Lock()
 
-	DPrintf("server %v 开始请求成为leader\n", rf.me)
-
-	//改变自身状态
 	rf.currentTerm += 1       // 自增term
 	rf.role = Candidate       // 成为候选人
 	rf.votedFor = rf.me       // 给自己投票
+	rf.voteCount = 1          // 自己有一票
 	rf.timeStamp = time.Now() // 自己给自己投票也算一种消息
-
-	rf.muVote.Lock()
-	rf.voteCount = 1
-	rf.muVote.Unlock()
 
 	args := &RequestVoteArgs{
 		Term:         rf.currentTerm,
@@ -333,18 +364,21 @@ func (rf *Raft) Elect() {
 		LastLogIndex: len(rf.log) - 1,
 		LastLogTerm:  rf.log[len(rf.log)-1].Term,
 	}
-
 	rf.mu.Unlock()
 
-	for i := 0; i < len(rf.peers) && i != rf.me; i++ {
-		rf.handleSelfVote(i, args)
+	for server := range rf.peers {
+		if server == rf.me {
+			DPrintf("vote for self : Raft[%d]", rf.me)
+			continue
+		}
+		go rf.collectVote(server, args)
 	}
 }
 
 type AppendEntriesArgs struct {
 	// Your data here (2A, 2B).
 	Term         int     // leader’s term
-	LabeaderId   int     // so follower can redirect clients
+	LeaderId     int     // so follower can redirect clients
 	PrevLogIndex int     // index of log entry immediately preceding new ones
 	PrevLogTerm  int     // term of prevLogIndex entry
 	Entries      []Entry // log entries to store (empty for heartbeat; may send more than one for efficiency)
@@ -373,35 +407,35 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	// 代码执行到这里就是 args.Term >= rf.currentTerm 的情况
+
 	// 不是旧 leader的话需要记录访问时间
 	rf.timeStamp = time.Now()
-	rf.votedFor = -1   // 不是旧leader的话, 更新投票记录为未投票
-	rf.role = Follower // 不是旧的leader的话不妨再更新一次role
 
 	if args.Term > rf.currentTerm {
 		// 新leader的第一个消息
 		rf.currentTerm = args.Term // 更新iterm
-		rf.votedFor = -1           // 更新投票记录为未投票
+		rf.votedFor = -1           // 易错点: 更新投票记录为未投票
+		rf.role = Follower
 	}
-
-	// 代码执行到这里就是 args.Term == rf.currentTerm 的情况
 
 	if args.Entries == nil {
 		// 心跳函数
-		DPrintf("server %v 接收到 leader &%v 的心跳\n", rf.me, args.LabeaderId)
+		DPrintf("server %v 接收到 leader &%v 的心跳\n", rf.me, args.LeaderId)
 	}
-	if args.Entries != nil && (args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
+	if args.Entries != nil &&
+		(args.PrevLogIndex >= len(rf.log) || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
 		// 校验PrevLogIndex和PrevLogTerm不合法
 		// 2. Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
-		// 3. If an existing entry conflicts with a new one (same index
-		// but different terms), delete the existing entry and all that
-		// follow it (§5.3)
+
 		reply.Term = rf.currentTerm
 		rf.mu.Unlock()
 		reply.Success = false
 		return
 	}
-
+	// 3. If an existing entry conflicts with a new one (same index
+	// but different terms), delete the existing entry and all that
+	// follow it (§5.3)
 	// 4. Append any new entries not already in the log
 	// TODO: 补充apeend的业务
 
@@ -431,12 +465,16 @@ func (rf *Raft) handleHeartBeat(serverTo int, args *AppendEntriesArgs) {
 
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	if sendArgs.Term != rf.currentTerm {
+		// 函数调用间隙值变了
+		return
+	}
 
 	if reply.Term > rf.currentTerm {
 		DPrintf("server %v 旧的leader收到了心跳函数中更新的term: %v, 转化为Follower\n", rf.me, reply.Term)
 		rf.currentTerm = reply.Term
-		rf.role = Follower
 		rf.votedFor = -1
+		rf.role = Follower
 	}
 }
 
@@ -453,7 +491,7 @@ func (rf *Raft) SendHeartBeats() {
 		}
 		args := &AppendEntriesArgs{
 			Term:         rf.currentTerm,
-			LabeaderId:   rf.me,
+			LeaderId:     rf.me,
 			PrevLogIndex: 0,
 			PrevLogTerm:  0,
 			Entries:      nil,
@@ -470,6 +508,7 @@ func (rf *Raft) SendHeartBeats() {
 }
 
 func (rf *Raft) ticker() {
+	rd := rand.New(rand.NewSource(int64(rf.me)))
 	for !rf.killed() {
 
 		// Your code here (2A)
@@ -477,9 +516,9 @@ func (rf *Raft) ticker() {
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
-		randTimeOut := GetRandomElectTimeOut()
+		rdTimeOut := GetRandomElectTimeOut(rd)
 		rf.mu.Lock()
-		if time.Since(rf.timeStamp) > randTimeOut && rf.role != Leader {
+		if rf.role != Leader && time.Since(rf.timeStamp) > time.Duration(rdTimeOut)*time.Millisecond {
 			// 超时
 			go rf.Elect()
 		}
