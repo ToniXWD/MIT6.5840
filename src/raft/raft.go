@@ -138,7 +138,7 @@ func (rf *Raft) persist() {
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
 
-	DPrintf("server %v 开始持久化, 最后一个持久化的log为: %v:%v", rf.me, len(rf.log)-1, rf.log[len(rf.log)-1].Cmd)
+	// DPrintf("server %v 开始持久化, 最后一个持久化的log为: %v:%v", rf.me, len(rf.log)-1, rf.log[len(rf.log)-1].Cmd)
 
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
@@ -238,7 +238,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	newEntry := &Entry{Term: rf.currentTerm, Cmd: command}
 	rf.log = append(rf.log, *newEntry)
-	DPrintf("leader %v 准备持久化", rf.me)
+	// DPrintf("leader %v 准备持久化", rf.me)
 	rf.persist()
 
 	return len(rf.log) - 1, rf.currentTerm, true
@@ -246,7 +246,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 func (rf *Raft) CommitChecker() {
 	// 检查是否有新的commit
-	DPrintf("server %v 的 CommitChecker 开始运行", rf.me)
+	// DPrintf("server %v 的 CommitChecker 开始运行", rf.me)
 	for !rf.killed() {
 		rf.mu.Lock()
 		for rf.commitIndex <= rf.lastApplied {
@@ -259,9 +259,9 @@ func (rf *Raft) CommitChecker() {
 				Command:      rf.log[rf.lastApplied].Cmd,
 				CommandIndex: rf.lastApplied,
 			}
-			DPrintf("server %v 准备commit, log = %v:%v", rf.me, rf.lastApplied, rf.log[rf.lastApplied].Cmd)
+			// DPrintf("server %v 准备commit, log = %v:%v", rf.me, rf.lastApplied, rf.log[rf.lastApplied].Cmd)
 			rf.applyCh <- *msg
-			DPrintf("server %v 准备将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
+			// DPrintf("server %v 准备将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
 		}
 		rf.mu.Unlock()
 	}
@@ -285,7 +285,7 @@ type AppendEntriesReply struct {
 	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
 	XTerm   int  // Follower中与Leader冲突的Log对应的Term
 	XIndex  int  // Follower中，对应Term为XTerm的第一条Log条目的索引
-	XLen    int  // 空白的Log槽位数, 如果Follower在对应位置没有Log，那么XTerm设置为-1
+	XLen    int  // Follower的log的长度
 }
 
 func (rf *Raft) sendAppendEntries(serverTo int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -340,9 +340,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.PrevLogIndex >= len(rf.log) {
 		// PrevLogIndex位置不存在日志项
 		reply.XTerm = -1
-		reply.XLen = args.PrevLogIndex + 1 - len(rf.log) // 空白的Log槽位数
+		reply.XLen = len(rf.log) // Log长度
 		isConflict = true
-		DPrintf("server %v 的log在PrevLogIndex: %v 位置不存在日志项, 有%v个空白槽位\n", rf.me, args.PrevLogIndex, reply.XLen)
+		DPrintf("server %v 的log在PrevLogIndex: %v 位置不存在日志项, Log长度为%v\n", rf.me, args.PrevLogIndex, reply.XLen)
 	} else if rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		// PrevLogIndex位置的日志项存在, 但term不匹配
 		reply.XTerm = rf.log[args.PrevLogIndex].Term
@@ -466,27 +466,28 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		// 快速回退的处理
 		if reply.XTerm == -1 {
 			// PrevLogIndex这个位置在Follower中不存在
-			rf.nextIndex[serverTo] -= reply.XLen
+			DPrintf("leader %v 收到 server %v 的回退请求, 原因是log过短, 回退前的nextIndex[%v]=%v, 回退后的nextIndex[%v]=%v\n", rf.me, serverTo, serverTo, rf.nextIndex[serverTo], serverTo, reply.XLen)
+			rf.nextIndex[serverTo] = reply.XLen
 			return
 		}
 
 		// 防止数组越界
-		if rf.nextIndex[serverTo] < 1 || rf.nextIndex[serverTo] >= len(rf.log) {
-			rf.nextIndex[serverTo] = 1
-		}
+		// if rf.nextIndex[serverTo] < 1 || rf.nextIndex[serverTo] >= len(rf.log) {
+		// 	rf.nextIndex[serverTo] = 1
+		// }
 		i := rf.nextIndex[serverTo] - 1
 		for i > 0 && rf.log[i].Term > reply.XTerm {
 			i -= 1
 		}
 		if rf.log[i].Term == reply.XTerm {
 			// 之前PrevLogIndex发生冲突位置时, Follower的Term自己也有
-			rf.nextIndex[serverTo] = i + 1
-			DPrintf("leader %v 收到 server %v 的回退请求, 冲突位置的Term为%v, server的这个Term从索引%v开始, 而leader对应的最后一个XTerm索引为%v\n", rf.me, serverTo, reply.XTerm, reply.XIndex, i)
 
+			DPrintf("leader %v 收到 server %v 的回退请求, 冲突位置的Term为%v, server的这个Term从索引%v开始, 而leader对应的最后一个XTerm索引为%v, 回退前的nextIndex[%v]=%v, 回退后的nextIndex[%v]=%v\n", rf.me, serverTo, reply.XTerm, reply.XIndex, i, serverTo, rf.nextIndex[serverTo], serverTo, i+1)
+			rf.nextIndex[serverTo] = i + 1
 		} else {
 			// 之前PrevLogIndex发生冲突位置时, Follower的Term自己没有
+			DPrintf("leader %v 收到 server %v 的回退请求, 冲突位置的Term为%v, server的这个Term从索引%v开始, 而leader对应的XTerm不存在, 回退前的nextIndex[%v]=%v, 回退后的nextIndex[%v]=%v\n", rf.me, serverTo, reply.XTerm, reply.XIndex, serverTo, rf.nextIndex[serverTo], serverTo, reply.XIndex)
 			rf.nextIndex[serverTo] = reply.XIndex
-			DPrintf("leader %v 收到 server %v 的回退请求, 冲突位置的Term为%v, server的这个Term从索引%v开始, 而leader对应的XTerm不存在\n", rf.me, serverTo, reply.XTerm, reply.XIndex)
 		}
 		return
 	}
@@ -516,28 +517,18 @@ func (rf *Raft) SendHeartBeats() {
 				LeaderCommit: rf.commitIndex,
 			}
 
-			// 防止数组越界
-			// TODO: 不明白为什么rf.nextIndex[i] 会越界, 甚至有负数?
-			// 需要判断数组是否越界来设定PrevLogTerm
-			if args.PrevLogIndex >= 0 && args.PrevLogIndex < len(rf.log) {
-				args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
-			} else {
-				args.PrevLogIndex = 0
-			}
-
-			if rf.nextIndex[i] < 1 {
-				rf.nextIndex[i] = 1
-			}
-
 			if len(rf.log)-1 > args.PrevLogIndex {
 				// 如果有新的log需要发送, 则就是一个真正的AppendEntries而不是心跳
+				DPrintf("leader %v 开始向 server %v 广播新的AppendEntries, nextIndex[%v]=%v, args = %+v\n", rf.me, i, i, rf.nextIndex[i], args)
 				args.Entries = rf.log[args.PrevLogIndex+1:]
-				DPrintf("leader %v 开始向 server %v 广播新的AppendEntries,  args = %+v\n", rf.me, i, args)
 			} else {
 				// 如果没有新的log发送, 就发送一个长度为0的切片, 表示心跳
+				DPrintf("leader %v 开始向 server %v 广播新的心跳, nextIndex[%v]=%v, args = %+v \n", rf.me, i, i, rf.nextIndex[i], args)
 				args.Entries = make([]Entry, 0)
-				DPrintf("leader %v 开始向 server %v 广播新的心跳, args = %+v \n", rf.me, i, args)
 			}
+
+			args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+
 			go rf.handleAppendEntries(i, args)
 		}
 
