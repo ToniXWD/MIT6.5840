@@ -470,8 +470,12 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 			return
 		}
 
+		// 防止数组越界
+		if rf.nextIndex[serverTo] < 1 || rf.nextIndex[serverTo] >= len(rf.log) {
+			rf.nextIndex[serverTo] = 1
+		}
 		i := rf.nextIndex[serverTo] - 1
-		for rf.log[i].Term > reply.XTerm {
+		for i > 0 && rf.log[i].Term > reply.XTerm {
 			i -= 1
 		}
 		if rf.log[i].Term == reply.XTerm {
@@ -511,13 +515,19 @@ func (rf *Raft) SendHeartBeats() {
 				PrevLogIndex: rf.nextIndex[i] - 1,
 				LeaderCommit: rf.commitIndex,
 			}
+
+			// 防止数组越界
+			// TODO: 不明白为什么rf.nextIndex[i] 会越界, 甚至有负数?
 			// 需要判断数组是否越界来设定PrevLogTerm
-			if args.PrevLogIndex >= len(rf.log) || args.PrevLogIndex < 0 {
+			if args.PrevLogIndex >= 0 && args.PrevLogIndex < len(rf.log) {
+				args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+			} else {
 				args.PrevLogIndex = 0
 			}
-			// TODO: 不明白为什么rf.nextIndex[i] 会越界, 甚至有负数?
 
-			args.PrevLogTerm = rf.log[args.PrevLogIndex].Term
+			if rf.nextIndex[i] < 1 {
+				rf.nextIndex[i] = 1
+			}
 
 			if len(rf.log)-1 > args.PrevLogIndex {
 				// 如果有新的log需要发送, 则就是一个真正的AppendEntries而不是心跳
