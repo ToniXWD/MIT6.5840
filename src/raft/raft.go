@@ -410,33 +410,30 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 	msg := &ApplyMsg{
 		SnapshotValid: true,
-		Snapshot:      rf.snapShot,
-		SnapshotTerm:  rf.lastIncludedTerm,
-		SnapshotIndex: rf.lastIncludedIndex,
+		Snapshot:      args.Data,
+		SnapshotTerm:  args.LastIncludedTerm,
+		SnapshotIndex: args.LastIncludedIndex,
 	}
 
 	if hasEntry {
 		rf.log = rf.log[rIdx:]
-		rf.lastIncludedIndex = args.LastIncludedIndex
-		rf.lastIncludedTerm = args.LastIncludedTerm
-		rf.lastApplied = args.LastIncludedIndex
-		rf.snapShot = args.Data
-		reply.Term = rf.currentTerm
-		rf.applyCh <- *msg
-		return
+	} else {
+		rf.log = make([]Entry, 0)
+		rf.log = append(rf.log, Entry{Term: rf.lastIncludedTerm, Cmd: args.LastIncludedCmd}) // 索引为0处占位
 	}
 
 	// 7. Discard the entire log
-	rf.log = make([]Entry, 0)
-	rf.log = append(rf.log, Entry{Term: rf.lastIncludedTerm, Cmd: args.LastIncludedCmd}) // 索引为0处占位
 	rf.snapShot = args.Data
 	rf.lastIncludedIndex = args.LastIncludedIndex
 	rf.lastIncludedTerm = args.LastIncludedTerm
+	if rf.lastApplied < args.LastIncludedIndex {
+		rf.lastApplied = args.LastIncludedIndex
+	}
+	reply.Term = rf.currentTerm
+	rf.applyCh <- *msg
 	rf.persist()
 
 	// 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
-	rf.applyCh <- *msg
-	reply.Term = rf.currentTerm
 }
 
 func (rf *Raft) handleInstallSnapshot(serverTo int) {
@@ -555,9 +552,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	if len(args.Entries) == 0 {
 		// 心跳函数
-		DPrintf("server %v 接收到 leader %v 的心跳: %+v\n", rf.me, args.LeaderId, args)
+		DPrintf("server %v 接收到 leader %v 的心跳, 自身lastIncludedIndex=%v, args= %+v\n", rf.me, args.LeaderId, rf.lastIncludedIndex, args)
 	} else {
-		DPrintf("server %v 收到 leader %v 的AppendEntries: %+v \n", rf.me, args.LeaderId, args)
+		DPrintf("server %v 收到 leader %v 的AppendEntries, 自身lastIncludedIndex=%v, args= %+v \n", rf.me, args.LeaderId, rf.lastIncludedIndex, args)
 	}
 
 	isConflict := false
@@ -574,7 +571,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// PrevLogIndex位置的日志项存在, 但term不匹配
 		reply.XTerm = rf.log[rf.RealLogIdx(args.PrevLogIndex)].Term
 		i := args.PrevLogIndex
-		for rf.log[rf.RealLogIdx(i)].Term == reply.XTerm {
+		for i > rf.lastIncludedIndex && rf.log[rf.RealLogIdx(i)].Term == reply.XTerm {
 			i -= 1
 		}
 		reply.XIndex = i + 1
@@ -652,6 +649,8 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 
 		// 需要判断是否可以commit
 		N := rf.VirtualLogIdx(len(rf.log) - 1)
+
+		DPrintf("leader %v 确定N以决定新的commitIndex, lastIncludedIndex=%v, commitIndex=%v", rf.me, rf.lastIncludedIndex, rf.commitIndex)
 
 		for N > rf.commitIndex {
 			count := 1 // 1表示包括了leader自己
