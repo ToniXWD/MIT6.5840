@@ -176,9 +176,12 @@ func (rf *Raft) persist() {
 
 // restore previously persisted state.
 func (rf *Raft) readPersist(data []byte) {
-	DPrintf("server %v 进入 readPersist\n", rf.me)
 	// 目前只在Make中调用, 因此不需要锁
 	if data == nil || len(data) < 1 { // bootstrap without any state?
+		return
+	}
+	if len(rf.snapShot) == 0 {
+		DPrintf("server %v: 快照不存在, 因此取消对readPersist的执行\n", rf.me)
 		return
 	}
 	// Your code here (2C).
@@ -210,7 +213,7 @@ func (rf *Raft) readPersist(data []byte) {
 		d.Decode(&log) != nil ||
 		d.Decode(&lastIncludedIndex) != nil ||
 		d.Decode(&lastIncludedTerm) != nil {
-		DPrintf("readPersist failed\n")
+		DPrintf("server %v readPersist failed\n", rf.me)
 	} else {
 		// 2C
 		rf.votedFor = votedFor
@@ -219,28 +222,21 @@ func (rf *Raft) readPersist(data []byte) {
 		// 2D
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
+
+		rf.commitIndex = lastIncludedIndex
+		rf.lastApplied = lastIncludedIndex
+		DPrintf("server %v  readPersist 成功\n", rf.me)
 	}
 }
 
 func (rf *Raft) readSnapshot(data []byte) {
-	DPrintf("server %v 进入 readSnapshot\n", rf.me)
-
 	// 目前只在Make中调用, 因此不需要锁
 	if len(data) == 0 {
 		DPrintf("server %v 读取快照失败: 无快照\n", rf.me)
 		return
 	}
-	r := bytes.NewBuffer(data)
-	d := labgob.NewDecoder(r)
-
-	var snapShot []byte
-
-	if d.Decode(&snapShot) != nil {
-		DPrintf("readSnapshot failed\n")
-	} else {
-		rf.snapShot = snapShot
-		DPrintf("server %v 读取快照成功,快照长度为 %v\n", rf.me, len(rf.snapShot))
-	}
+	rf.snapShot = data
+	DPrintf("server %v 读取快照c成功\n", rf.me)
 }
 
 // the service says it has created a snapshot that has
@@ -249,19 +245,15 @@ func (rf *Raft) readSnapshot(data []byte) {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
-	DPrintf("server %v 进入 Snapshot\n", rf.me)
-
 	rf.mu.Lock()
-	// DPrintf("server %v Snapshot 获取锁mu", rf.me)
+	defer rf.mu.Unlock()
 
-	defer func() {
-		// DPrintf("server %v Snapshot 释放锁mu", rf.me)
-		rf.mu.Unlock()
-	}()
-
-	if rf.commitIndex < index || rf.lastIncludedIndex >= index {
+	if rf.commitIndex < index || index <= rf.lastIncludedIndex {
+		DPrintf("server %v 拒绝了 Snapshot 请求, 其index=%v, 自身commitIndex=%v, lastIncludedIndex=%v\n", rf.me, index, rf.commitIndex, rf.lastIncludedIndex)
 		return
 	}
+
+	DPrintf("server %v 同意了 Snapshot 请求, 其index=%v, 自身commitIndex=%v, 原来的lastIncludedIndex=%v, 快照后的lastIncludedIndex=%v\n", rf.me, index, rf.commitIndex, rf.lastIncludedIndex, index)
 
 	// 保存snapshot
 	rf.snapShot = snapshot
@@ -270,6 +262,9 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// 截断log
 	rf.log = rf.log[rf.RealLogIdx(index):] // index位置的log被存在0索引处
 	rf.lastIncludedIndex = index
+	if rf.lastApplied < index {
+		rf.lastApplied = index
+	}
 
 	rf.persist()
 }
@@ -336,12 +331,18 @@ func (rf *Raft) CommitChecker() {
 			rf.condApply.Wait()
 		}
 		msgBuf := make([]*ApplyMsg, 0, rf.commitIndex-rf.lastApplied)
-		for rf.commitIndex > rf.lastApplied {
-			rf.lastApplied += 1
+		tmpApplied := rf.lastApplied
+		for rf.commitIndex > tmpApplied {
+			tmpApplied += 1
+			if tmpApplied <= rf.lastIncludedIndex {
+				// tmpApplied可能是snapShot中已经被截断的日志项, 这些日志项就不需要再发送了
+				continue
+			}
 			msg := &ApplyMsg{
 				CommandValid: true,
-				Command:      rf.log[rf.RealLogIdx(rf.lastApplied)].Cmd,
-				CommandIndex: rf.lastApplied,
+				Command:      rf.log[rf.RealLogIdx(tmpApplied)].Cmd,
+				CommandIndex: tmpApplied,
+				SnapshotTerm: rf.log[rf.RealLogIdx(tmpApplied)].Term,
 			}
 
 			msgBuf = append(msgBuf, msg)
@@ -349,10 +350,27 @@ func (rf *Raft) CommitChecker() {
 		rf.mu.Unlock()
 		// DPrintf("server %v CommitChecker 释放锁mu", rf.me)
 
+		// 注意, 在解锁后可能又出现了SnapShot进而修改了rf.lastApplied
 		for _, msg := range msgBuf {
-			// DPrintf("server %v 准备commit, log = %v:%v", rf.me, rf.lastApplied, rf.log[rf.lastApplied].Cmd)
+			rf.mu.Lock()
+			if msg.CommandIndex != rf.lastApplied+1 {
+				rf.mu.Unlock()
+				continue
+			}
+			DPrintf("server %v 准备commit, log = %v:%v, lastIncludedIndex=%v", rf.me, msg.CommandIndex, msg.SnapshotTerm, rf.lastIncludedIndex)
+
+			rf.mu.Unlock()
+			// 注意, 在解锁后可能又出现了SnapShot进而修改了rf.lastApplied
+
 			rf.applyCh <- *msg
-			// DPrintf("server %v 准备将命令 %v(索引为 %v ) 应用到状态机\n", rf.me, msg.Command, msg.CommandIndex)
+
+			rf.mu.Lock()
+			if msg.CommandIndex != rf.lastApplied+1 {
+				rf.mu.Unlock()
+				continue
+			}
+			rf.lastApplied = msg.CommandIndex
+			rf.mu.Unlock()
 		}
 	}
 }
@@ -380,13 +398,16 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	rf.mu.Lock()
 	// DPrintf("server %v InstallSnapshot 获取锁mu", rf.me)
 	defer func() {
-		// DPrintf("server %v InstallSnapshot 释放锁mu", rf.me)
+		rf.ResetTimer()
 		rf.mu.Unlock()
+		DPrintf("server %v 接收到 leader %v 的InstallSnapshot, 重设定时器", rf.me, args.LeaderId)
 	}()
 
 	// 1. Reply immediately if term < currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
+		DPrintf("server %v 拒绝来自 %v 的 InstallSnapshot, 更小的Term\n", rf.me, args.LeaderId)
+
 		return
 	}
 	// 不需要实现分块的RPC
@@ -394,6 +415,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	if args.Term > rf.currentTerm /*当前raft落后，可以接着安装快照*/ {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
+		DPrintf("server %v 接受来自 %v 的 InstallSnapshot, 且发现了更大的Term\n", rf.me, args.LeaderId)
 	}
 
 	rf.role = Follower
@@ -416,27 +438,33 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	}
 
 	if hasEntry {
+		DPrintf("server %v InstallSnapshot: args.LastIncludedIndex= %v 位置存在, 保留后面的log\n", rf.me, args.LastIncludedIndex)
+
 		rf.log = rf.log[rIdx:]
 	} else {
+		DPrintf("server %v InstallSnapshot: 清空log\n", rf.me)
 		rf.log = make([]Entry, 0)
 		rf.log = append(rf.log, Entry{Term: rf.lastIncludedTerm, Cmd: args.LastIncludedCmd}) // 索引为0处占位
 	}
 
 	// 7. Discard the entire log
+	// 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
+
 	rf.snapShot = args.Data
 	rf.lastIncludedIndex = args.LastIncludedIndex
 	rf.lastIncludedTerm = args.LastIncludedTerm
+
+	if rf.commitIndex < args.LastIncludedIndex {
+		rf.commitIndex = args.LastIncludedIndex
+	}
+
 	if rf.lastApplied < args.LastIncludedIndex {
 		rf.lastApplied = args.LastIncludedIndex
 	}
-	if rf.commitIndex < rf.lastApplied {
-		rf.commitIndex = rf.lastApplied
-	}
+
 	reply.Term = rf.currentTerm
 	rf.applyCh <- *msg
 	rf.persist()
-
-	// 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
 }
 
 func (rf *Raft) handleInstallSnapshot(serverTo int) {
@@ -663,6 +691,7 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 				}
 				if rf.matchIndex[i] >= N && rf.log[rf.RealLogIdx(N)].Term == rf.currentTerm {
 					// TODO: N有没有可能自减到snapShot之前的索引导致log出现负数索引越界?
+					// 解答: 需要确保调用SnapShot时检查索引是否超过commitIndex
 					count += 1
 				}
 			}
@@ -1065,8 +1094,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	// 如果读取成功, 将覆盖log, votedFor和currentTerm
-	rf.readPersist(persister.ReadRaftState())
 	rf.readSnapshot(persister.ReadSnapshot())
+	rf.readPersist(persister.ReadRaftState())
 
 	for i := 0; i < len(rf.nextIndex); i++ {
 		rf.nextIndex[i] = rf.VirtualLogIdx(len(rf.log)) // raft中的index是从1开始的
