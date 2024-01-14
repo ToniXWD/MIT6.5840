@@ -4,3 +4,4 @@ api.key
 *-handin.tar.gz
 .idea/
 src/raft/output*
+src/raft/*.log
