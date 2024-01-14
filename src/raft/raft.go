@@ -431,6 +431,9 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	if rf.lastApplied < args.LastIncludedIndex {
 		rf.lastApplied = args.LastIncludedIndex
 	}
+	if rf.commitIndex < rf.lastApplied {
+		rf.commitIndex = rf.lastApplied
+	}
 	reply.Term = rf.currentTerm
 	rf.applyCh <- *msg
 	rf.persist()
