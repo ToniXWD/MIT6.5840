@@ -219,8 +219,6 @@ func (rf *Raft) readPersist(data []byte) {
 		// 2D
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
-		rf.lastApplied = rf.lastIncludedIndex
-		rf.commitIndex = rf.lastIncludedIndex
 	}
 }
 
