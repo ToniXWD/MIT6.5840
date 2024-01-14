@@ -744,6 +744,9 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		// 	rf.nextIndex[serverTo] = 1
 		// }
 		i := rf.nextIndex[serverTo] - 1
+		if i < rf.lastIncludedIndex {
+			i = rf.lastIncludedIndex
+		}
 		for i > rf.lastIncludedIndex && rf.log[rf.RealLogIdx(i)].Term > reply.XTerm {
 			i -= 1
 		}
