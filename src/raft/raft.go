@@ -64,8 +64,8 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 110
-	ElectTimeOutBase = 500
+	HeartBeatTimeOut = 101
+	ElectTimeOutBase = 450
 )
 
 // A Go object implementing a single Raft peer.
@@ -219,6 +219,8 @@ func (rf *Raft) readPersist(data []byte) {
 		// 2D
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
+		rf.lastApplied = rf.lastIncludedIndex
+		rf.commitIndex = rf.lastIncludedIndex
 	}
 }
 
