@@ -180,10 +180,6 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
-	if len(rf.snapShot) == 0 {
-		DPrintf("server %v: 快照不存在, 因此取消对readPersist的执行\n", rf.me)
-		return
-	}
 	// Your code here (2C).
 	// Example:
 	// r := bytes.NewBuffer(data)
@@ -809,8 +805,8 @@ func (rf *Raft) SendHeartBeats() {
 				sendInstallSnapshot = true
 			} else if rf.VirtualLogIdx(len(rf.log)-1) > args.PrevLogIndex {
 				// 如果有新的log需要发送, 则就是一个真正的AppendEntries而不是心跳
-				DPrintf("leader %v 开始向 server %v 广播新的AppendEntries, lastIncludedIndex=%v, nextIndex[%v]=%v, args = %+v\n", rf.me, i, rf.lastIncludedIndex, i, rf.nextIndex[i], args)
 				args.Entries = rf.log[rf.RealLogIdx(args.PrevLogIndex+1):]
+				DPrintf("leader %v 开始向 server %v 广播新的AppendEntries, lastIncludedIndex=%v, nextIndex[%v]=%v, args = %+v\n", rf.me, i, rf.lastIncludedIndex, i, rf.nextIndex[i], args)
 			} else {
 				// 如果没有新的log发送, 就发送一个长度为0的切片, 表示心跳
 				DPrintf("leader %v 开始向 server %v 广播新的心跳, lastIncludedIndex=%v, nextIndex[%v]=%v, args = %+v \n", rf.me, i, rf.lastIncludedIndex, i, rf.nextIndex[i], args)
