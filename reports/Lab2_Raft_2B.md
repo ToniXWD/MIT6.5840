@@ -1,5 +1,5 @@
 ---
-title: 'MIT6.8540(6.824) Lab2: Raft 2B'
+title: 'MIT6.5840(6.824) Lab2: Raft 2B'
 date: 2024-01-06 17:17:01
 category: 
 - 'CS课程笔记'
@@ -14,13 +14,13 @@ tags:
 
 `Lab文档`见: https://pdos.csail.mit.edu/6.824/labs/lab-raft.html
 
-我的2A部分的实现在[这里](/2024/01/01/MIT6.8540/Lab2_Raft_2A/) 
+我的2A部分的实现在[这里](/2024/01/01/MIT6.5840/Lab2_Raft_2A/) 
 
 [raft原论文](https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf)
 
 我的代码:
-- 时间戳实现: https://github.com/ToniXWD/MIT6.8540/tree/lab2B
-- timer实现: https://github.com/ToniXWD/MIT6.8540/tree/lab2B-timer
+- 时间戳实现: https://github.com/ToniXWD/MIT6.5840/tree/lab2B
+- timer实现: https://github.com/ToniXWD/MIT6.5840/tree/lab2B-timer
 
 # 1 2A部分的bug修复
 ## 1.1 修复孤立节点被选举的bug

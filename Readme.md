@@ -1,4 +1,4 @@
-本仓库是我实现的 MIT6.8540(原MIT6.824)的课程`lab`代码
+本仓库是我实现的 MIT6.5840(原MIT6.824)的课程`lab`代码
 
 另外, 我还在自己的博客中记录了课程的笔记和同步的`lab文档`: [ToniBlog](https://tonixwd.github.io/categories/CS%E8%AF%BE%E7%A8%8B%E7%AC%94%E8%AE%B0/MIT6-5840-6-824-2023/)
 

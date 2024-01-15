@@ -1,5 +1,5 @@
 ---
-title: 'MIT6.8540(6.824) Lab1: MapReduce'
+title: 'MIT6.5840(6.824) Lab1: MapReduce'
 date: 2023-12-23 13:25:18
 category: 
 - 'CS课程笔记'
@@ -14,7 +14,7 @@ tags:
 # 1 实验介绍
 本次实验是实现一个简易版本的`MapReduce`编程框架,官方文档在这里:[lab1文档](https://pdos.csail.mit.edu/6.824/labs/lab-mr.html), 强烈建议先阅读`MapReduce`的[论文](https://pdos.csail.mit.edu/6.824/papers/mapreduce.pdf), 难度主要体现在设计上, 实际的代码实现倒是相对简单, 这也得益于`go`的语言特性, 比`CMU15445`使用Cpp写代码方便多了。实验需要实现的是`Coordinator`和`Worker`的设计, 具体实现细节十分自由(~~无从下手~~)
 
-我的代码实现点这里： https://github.com/ToniXWD/MIT6.8540/tree/lab1
+我的代码实现点这里： https://github.com/ToniXWD/MIT6.5840/tree/lab1
 
 # 2 既有框架解读
 解读现有的框架设计是第一步。
