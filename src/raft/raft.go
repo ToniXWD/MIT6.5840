@@ -682,7 +682,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 
 	if reply.Term > rf.currentTerm {
 		// 回复了更新的term, 表示自己已经不是leader了
-		// 易错点: 这里也应该进行重新选举而不是直接转化为follower, 因为这可能是来自一个孤立节点的返回值
 		DPrintf("server %v 旧的leader收到了来自 server % v 的心跳函数中更新的term: %v, 转化为Follower\n", rf.me, serverTo, reply.Term)
 
 		rf.currentTerm = reply.Term
@@ -971,7 +970,7 @@ func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs) {
 		// 需要重新初始化nextIndex和matchIndex
 		for i := 0; i < len(rf.nextIndex); i++ {
 			rf.nextIndex[i] = rf.VirtualLogIdx(len(rf.log))
-			rf.matchIndex[i] = 0 // 由于matchIndex初始化为0, 因此在崩溃恢复后, 大概率触发InstallSnapshot RPC
+			rf.matchIndex[i] = rf.lastIncludedIndex // 由于matchIndex初始化为lastIncludedIndex, 因此在崩溃恢复后, 大概率触发InstallSnapshot RPC
 		}
 		rf.mu.Unlock()
 		// DPrintf("server %v collectVote 释放锁mu", rf.me)
