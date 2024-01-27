@@ -31,6 +31,7 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	ck.identifier = nrand()
+	ck.seq = 0
 	return ck
 }
 

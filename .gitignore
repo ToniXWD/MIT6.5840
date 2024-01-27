@@ -5,3 +5,4 @@ api.key
 .idea/
 src/raft/output*
 src/raft/*.log
+src/kvraft/my_test.go

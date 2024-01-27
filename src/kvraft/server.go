@@ -44,8 +44,9 @@ type Op struct {
 }
 
 type result struct {
-	Err   Err
-	Value string
+	LastSeq uint64
+	Err     Err
+	Value   string
 }
 
 type KVServer struct {
@@ -58,6 +59,7 @@ type KVServer struct {
 	historyMap map[int64]map[uint64]*result
 
 	maxraftstate int // snapshot if log grows this big
+	maxMapLen    int
 	db           map[string]string
 }
 
@@ -66,26 +68,27 @@ func (kv *KVServer) DBExecute(op *Op) (res result) {
 	case OPGet:
 		val, exist := kv.db[op.Key]
 		if exist {
-			DPrintf("server %v DBExecute: identifier %v Seq %v:  Get(%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, val)
+			// DPrintf("server %v DBExecute: identifier %v Seq %v:  Get(%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, val)
 			res.Value = val
 			return
 		} else {
-			DPrintf("server %v DBExecute: identifier %v Seq %v:  Get(%v) Err:%v \n", kv.me, op.Identifier, op.Seq, op.Key, ErrKeyNotExist)
+			// DPrintf("server %v DBExecute: identifier %v Seq %v:  Get(%v) Err:%v \n", kv.me, op.Identifier, op.Seq, op.Key, ErrKeyNotExist)
 			res.Err = ErrKeyNotExist
 			return
 		}
 	case OPPut:
 		kv.db[op.Key] = op.Val
-		DPrintf("server %v DBExecute: identifier %v Seq %v:  Put(%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, op.Val)
+		// DPrintf("server %v DBExecute: identifier %v Seq %v:  Put(%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, op.Val)
 		return
 	case OPAppend:
 		val, exist := kv.db[op.Key]
 		if exist {
 			kv.db[op.Key] = val + op.Val
-			DPrintf("server %v DBExecute: identifier %v Seq %v:  OPAppend(%v,%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, op.Val, kv.db[op.Key])
+			// DPrintf("server %v DBExecute: identifier %v Seq %v:  OPAppend(%v,%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, op.Val, kv.db[op.Key])
 			return
 		} else {
-			res.Err = ErrKeyNotExist
+			kv.db[op.Key] = op.Val
+			// DPrintf("server %v DBExecute: identifier %v Seq %v:  OPAppend(%v,%v)= %v\n", kv.me, op.Identifier, op.Seq, op.Key, op.Val, kv.db[op.Key])
 			return
 		}
 	}
@@ -135,7 +138,6 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 			// 关闭通道并从map中移除
 			delete(kv.waiCh[opArgs.Identifier], opArgs.Seq)
 			kv.mu.Unlock()
-			close(*ch)
 			return
 		}
 	case <-time.After(HandleOpTimeOut):
