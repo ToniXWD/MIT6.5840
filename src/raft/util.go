@@ -16,7 +16,7 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 }
 
 func GetRandomElectTimeOut(rd *rand.Rand) int {
-	plusMs := int(rd.Float64() * 500.0)
+	plusMs := int(rd.Float64() * 150)
 
 	return plusMs + ElectTimeOutBase
 }

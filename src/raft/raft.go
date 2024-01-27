@@ -64,8 +64,8 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 101
-	ElectTimeOutBase = 450
+	HeartBeatTimeOut = 100
+	ElectTimeOutBase = 250
 )
 
 // A Go object implementing a single Raft peer.
@@ -493,7 +493,6 @@ func (rf *Raft) handleInstallSnapshot(serverTo int) {
 		rf.currentTerm = reply.Term
 		rf.role = Follower
 		rf.votedFor = -1
-		rf.ResetVoteTimer()
 		rf.persist()
 		return
 	}
@@ -716,7 +715,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		rf.currentTerm = reply.Term
 		rf.role = Follower
 		rf.votedFor = -1
-		rf.ResetVoteTimer()
 		rf.persist()
 		return
 	}
@@ -967,7 +965,6 @@ func (rf *Raft) GetVoteAnswer(server int, args *RequestVoteArgs) bool {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
 		rf.role = Follower
-		rf.ResetVoteTimer()
 		rf.persist()
 	}
 	return reply.VoteGranted
