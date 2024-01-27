@@ -6,7 +6,7 @@ success_count=0
 fail_count=0
 
 # 设置测试次数
-max_tests=50
+max_tests=100
 
 for ((i=1; i<=max_tests; i++))
 do
@@ -22,7 +22,7 @@ do
         success_count=$((success_count+1))
         echo "Test iteration $i passed."
         # 如果想保存通过的测试日志，取消下面行的注释
-        mv outputTestUnreliableChurn2C.log "success_UnreliableChurn2C_$i.log"
+        # mv outputTestUnreliableChurn2C.log "success_UnreliableChurn2C_$i.log"
     else
         # 测试失败
         fail_count=$((fail_count+1))

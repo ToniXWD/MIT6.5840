@@ -64,8 +64,8 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 125
-	ElectTimeOutBase = 500
+	HeartBeatTimeOut = 101
+	ElectTimeOutBase = 450
 )
 
 // A Go object implementing a single Raft peer.
@@ -92,9 +92,6 @@ type Raft struct {
 	heartTimer *time.Timer
 	rd         *rand.Rand
 	role       int
-
-	muVote    sync.Mutex // 保护投票数据
-	voteCount int
 
 	commitIndex int
 	lastApplied int
@@ -283,9 +280,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (2B).
 	// 如果不是leader返回false
 	rf.mu.Lock()
-	DPrintf("server %v Start 获取锁mu", rf.me)
+	// DPrintf("server %v Start 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v Start 释放锁mu", rf.me)
+		// DPrintf("server %v Start 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 	if rf.role != Leader {
@@ -298,7 +295,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.persist()
 
 	defer func() {
-		rf.ResetHeartTimer(2)
+		rf.ResetHeartTimer(1)
 	}()
 
 	return rf.VirtualLogIdx(len(rf.log) - 1), rf.currentTerm, true
@@ -309,7 +306,7 @@ func (rf *Raft) CommitChecker() {
 	DPrintf("server %v 的 CommitChecker 开始运行", rf.me)
 	for !rf.killed() {
 		rf.mu.Lock()
-		DPrintf("server %v CommitChecker 获取锁mu", rf.me)
+		// DPrintf("server %v CommitChecker 获取锁mu", rf.me)
 		for rf.commitIndex <= rf.lastApplied {
 			rf.condApply.Wait()
 		}
@@ -334,7 +331,7 @@ func (rf *Raft) CommitChecker() {
 			msgBuf = append(msgBuf, msg)
 		}
 		rf.mu.Unlock()
-		DPrintf("server %v CommitChecker 释放锁mu", rf.me)
+		// DPrintf("server %v CommitChecker 释放锁mu", rf.me)
 
 		// 注意, 在解锁后可能又出现了SnapShot进而修改了rf.lastApplied
 		for _, msg := range msgBuf {
@@ -382,12 +379,9 @@ func (rf *Raft) sendInstallSnapshot(serverTo int, args *InstallSnapshotArgs, rep
 // InstallSnapshot handler
 func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
 	rf.mu.Lock()
-	DPrintf("server %v InstallSnapshot 获取锁mu", rf.me)
-	defer func() {
-		rf.ResetVoteTimer()
-		rf.mu.Unlock()
-		DPrintf("server %v 接收到 leader %v 的InstallSnapshot, 重设定时器", rf.me, args.LeaderId)
-	}()
+	defer rf.mu.Unlock()
+
+	// DPrintf("server %v InstallSnapshot 获取锁mu", rf.me)
 
 	// 1. Reply immediately if term < currentTerm
 	if args.Term < rf.currentTerm {
@@ -396,6 +390,7 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 		return
 	}
+
 	// 不需要实现分块的RPC
 
 	if args.Term > rf.currentTerm {
@@ -405,6 +400,8 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	}
 
 	rf.role = Follower
+	rf.ResetVoteTimer()
+	DPrintf("server %v 接收到 leader %v 的InstallSnapshot, 重设定时器", rf.me, args.LeaderId)
 
 	// 6. If existing log entry has same index and term as snapshot’s last included entry, retain log entries following it and reply
 	hasEntry := false
@@ -457,7 +454,7 @@ func (rf *Raft) handleInstallSnapshot(serverTo int) {
 	reply := &InstallSnapshotReply{}
 
 	rf.mu.Lock()
-	DPrintf("server %v handleInstallSnapshot 获取锁mu", rf.me)
+	// DPrintf("server %v handleInstallSnapshot 获取锁mu", rf.me)
 
 	if rf.role != Leader {
 		// 自己已经不是Lader了, 返回
@@ -475,7 +472,7 @@ func (rf *Raft) handleInstallSnapshot(serverTo int) {
 	}
 
 	rf.mu.Unlock()
-	DPrintf("server %v handleInstallSnapshot 释放锁mu", rf.me)
+	// DPrintf("server %v handleInstallSnapshot 释放锁mu", rf.me)
 
 	// 发送RPC时不要持有锁
 	ok := rf.sendInstallSnapshot(serverTo, args, reply)
@@ -485,9 +482,9 @@ func (rf *Raft) handleInstallSnapshot(serverTo int) {
 	}
 
 	rf.mu.Lock()
-	DPrintf("server %v handleInstallSnapshot 获取锁mu", rf.me)
+	// DPrintf("server %v handleInstallSnapshot 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v handleInstallSnapshot 释放锁mu", rf.me)
+		// DPrintf("server %v handleInstallSnapshot 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 
@@ -538,9 +535,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 新leader发送的第一个消息
 
 	rf.mu.Lock()
-	DPrintf("server %v AppendEntries 获取锁mu", rf.me)
+	// DPrintf("server %v AppendEntries 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v AppendEntries 释放锁mu", rf.me)
+		// DPrintf("server %v AppendEntries 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 
@@ -659,9 +656,9 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 	}
 
 	rf.mu.Lock()
-	DPrintf("server %v handleAppendEntries 获取锁mu", rf.me)
+	// DPrintf("server %v handleAppendEntries 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v handleAppendEntries 释放锁mu", rf.me)
+		// DPrintf("server %v handleAppendEntries 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 
@@ -719,7 +716,6 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		rf.currentTerm = reply.Term
 		rf.role = Follower
 		rf.votedFor = -1
-		// rf.timeStamp = time.Now()
 		rf.ResetVoteTimer()
 		rf.persist()
 		return
@@ -784,11 +780,11 @@ func (rf *Raft) SendHeartBeats() {
 	for !rf.killed() {
 		<-rf.heartTimer.C
 		rf.mu.Lock()
-		DPrintf("server %v SendHeartBeats 获取锁mu", rf.me)
+		// DPrintf("server %v SendHeartBeats 获取锁mu", rf.me)
 		// if the server is dead or is not the leader, just return
 		if rf.role != Leader {
 			rf.mu.Unlock()
-			DPrintf("server %v SendHeartBeats 释放锁mu", rf.me)
+			// DPrintf("server %v SendHeartBeats 释放锁mu", rf.me)
 			// 不是leader则终止心跳的发送
 			return
 		}
@@ -832,7 +828,7 @@ func (rf *Raft) SendHeartBeats() {
 		}
 
 		rf.mu.Unlock()
-		DPrintf("server %v SendHeartBeats 释放锁mu", rf.me)
+		// DPrintf("server %v SendHeartBeats 释放锁mu", rf.me)
 		rf.ResetHeartTimer(HeartBeatTimeOut)
 	}
 }
@@ -890,9 +886,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
 	rf.mu.Lock()
-	DPrintf("server %v RequestVote 获取锁mu", rf.me)
+	// DPrintf("server %v RequestVote 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v RequestVote 释放锁mu", rf.me)
+		// DPrintf("server %v RequestVote 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 
@@ -925,7 +921,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.Term = rf.currentTerm
 			rf.votedFor = args.CandidateId
 			rf.role = Follower
-			// rf.timeStamp = time.Now()
 			rf.ResetVoteTimer()
 			rf.persist()
 
@@ -956,9 +951,9 @@ func (rf *Raft) GetVoteAnswer(server int, args *RequestVoteArgs) bool {
 	}
 
 	rf.mu.Lock()
-	DPrintf("server %v GetVoteAnswer 获取锁mu", rf.me)
+	// DPrintf("server %v GetVoteAnswer 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v GetVoteAnswer 释放锁mu", rf.me)
+		// DPrintf("server %v GetVoteAnswer 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 
@@ -972,32 +967,33 @@ func (rf *Raft) GetVoteAnswer(server int, args *RequestVoteArgs) bool {
 		rf.currentTerm = reply.Term
 		rf.votedFor = -1
 		rf.role = Follower
+		rf.ResetVoteTimer()
 		rf.persist()
 	}
 	return reply.VoteGranted
 }
 
-func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs) {
+func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs, muVote *sync.Mutex, voteCount *int) {
 	voteAnswer := rf.GetVoteAnswer(serverTo, args)
 	if !voteAnswer {
 		return
 	}
-	rf.muVote.Lock()
-	if rf.voteCount > len(rf.peers)/2 {
-		rf.muVote.Unlock()
+	muVote.Lock()
+	if *voteCount > len(rf.peers)/2 {
+		muVote.Unlock()
 		return
 	}
 
-	rf.voteCount += 1
-	if rf.voteCount > len(rf.peers)/2 {
+	*voteCount += 1
+	if *voteCount > len(rf.peers)/2 {
 		rf.mu.Lock()
-		DPrintf("server %v collectVote 获取锁mu", rf.me)
+		// DPrintf("server %v collectVote 获取锁mu", rf.me)
 		if rf.role == Follower {
 			// 有另外一个投票的协程收到了更新的term而更改了自身状态为Follower
 			rf.mu.Unlock()
-			DPrintf("server %v 释放锁mu", rf.me)
+			// DPrintf("server %v 释放锁mu", rf.me)
 
-			rf.muVote.Unlock()
+			muVote.Unlock()
 			return
 		}
 		DPrintf("server %v 成为了新的 leader", rf.me)
@@ -1008,32 +1004,29 @@ func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs) {
 			rf.matchIndex[i] = rf.lastIncludedIndex // 由于matchIndex初始化为lastIncludedIndex, 因此在崩溃恢复后, 大概率触发InstallSnapshot RPC
 		}
 		rf.mu.Unlock()
-		DPrintf("server %v collectVote 释放锁mu", rf.me)
+		// DPrintf("server %v collectVote 释放锁mu", rf.me)
 
 		go rf.SendHeartBeats()
 	}
 
-	rf.muVote.Unlock()
+	muVote.Unlock()
 }
 
 func (rf *Raft) Elect() {
 	// 特别注意, 要先对muVote加锁, 再对mu加锁, 这是为了统一获取锁的顺序以避免死锁
-	rf.muVote.Lock()
-	rf.voteCount = 1 // 自己有一票
-	rf.muVote.Unlock()
 
 	rf.mu.Lock()
-	DPrintf("server %v Elect 获取锁mu", rf.me)
+	// DPrintf("server %v Elect 获取锁mu", rf.me)
 	defer func() {
-		DPrintf("server %v Elect 释放锁mu", rf.me)
+		// DPrintf("server %v Elect 释放锁mu", rf.me)
 		rf.mu.Unlock()
 	}()
 
 	rf.currentTerm += 1 // 自增term
 	rf.role = Candidate // 成为候选人
 	rf.votedFor = rf.me // 给自己投票
-
-	// rf.timeStamp = time.Now() // 自己给自己投票也算一种消息
+	voteCount := 1      // 自己有一票
+	var muVote sync.Mutex
 
 	DPrintf("server %v 开始发起新一轮投票, 新一轮的term为: %v", rf.me, rf.currentTerm)
 
@@ -1048,7 +1041,7 @@ func (rf *Raft) Elect() {
 		if i == rf.me {
 			continue
 		}
-		go rf.collectVote(i, args)
+		go rf.collectVote(i, args, &muVote, &voteCount)
 	}
 }
 
@@ -1061,14 +1054,14 @@ func (rf *Raft) ticker() {
 		// milliseconds.
 		<-rf.voteTimer.C
 		rf.mu.Lock()
-		DPrintf("server %v ticker 获取锁mu", rf.me)
+		// DPrintf("server %v ticker 获取锁mu", rf.me)
 		if rf.role != Leader {
 			// 超时
 			go rf.Elect()
 		}
 		rf.ResetVoteTimer()
 		rf.mu.Unlock()
-		DPrintf("server %v ticker 释放锁mu", rf.me)
+		// DPrintf("server %v ticker 释放锁mu", rf.me)
 	}
 }
 
