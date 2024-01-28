@@ -64,8 +64,8 @@ const (
 )
 
 const (
-	HeartBeatTimeOut = 100
-	ElectTimeOutBase = 250
+	HeartBeatTimeOut = 101
+	ElectTimeOutBase = 450
 )
 
 // A Go object implementing a single Raft peer.
@@ -103,9 +103,6 @@ type Raft struct {
 	snapShot          []byte // 快照
 	lastIncludedIndex int    // 日志中的最高索引
 	lastIncludedTerm  int    // 日志中的最高Term
-
-	// 3A
-	appendSeq uint64
 }
 
 func (rf *Raft) Print() {
@@ -508,19 +505,17 @@ type AppendEntriesArgs struct {
 	PrevLogTerm  int     // term of prevLogIndex entry
 	Entries      []Entry // log entries to store (empty for heartbeat; may send more than one for efficiency)
 	LeaderCommit int     // leader’s commitIndex
-	AppendSeq    uint64  // 命令的全局序号
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type AppendEntriesReply struct {
 	// Your data here (2A).
-	Term         int  // currentTerm, for leader to update itself
-	Success      bool // true if follower contained entry matching prevLogIndex and prevLogTerm
-	XTerm        int  // Follower中与Leader冲突的Log对应的Term
-	XIndex       int  // Follower中，对应Term为XTerm的第一条Log条目的索引
-	XLen         int  // Follower的log的长度
-	IsInvalidRpc bool // 更早的RPC却迟到了, 所以这个RPC返回后不应该处理
+	Term    int  // currentTerm, for leader to update itself
+	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
+	XTerm   int  // Follower中与Leader冲突的Log对应的Term
+	XIndex  int  // Follower中，对应Term为XTerm的第一条Log条目的索引
+	XLen    int  // Follower的log的长度
 }
 
 func (rf *Raft) sendAppendEntries(serverTo int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -551,17 +546,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	if args.Term == rf.currentTerm && args.AppendSeq < rf.appendSeq {
-		// 这是一个更早的RPC但却迟到了
-		reply.IsInvalidRpc = true
-		// 这种情况也需要重设定时器
-		rf.ResetVoteTimer()
-		return
-	}
-
 	// 代码执行到这里就是 args.Term >= rf.currentTerm 的情况
-	// 无论是>还是>=都需要将 appendSeq 置为AppendSeq
-	rf.appendSeq = args.AppendSeq
 
 	// 不是旧 leader的话需要记录访问时间
 	rf.ResetVoteTimer()
@@ -617,18 +602,26 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 	DPrintf("server %v 的log与args发生冲突, 进行移除\n", rf.me)
 	// 	rf.log = rf.log[:args.PrevLogIndex+1]
 	// }
-	if len(args.Entries) != 0 && rf.VirtualLogIdx(len(rf.log)) > args.PrevLogIndex+1 {
-		rf.log = rf.log[:rf.RealLogIdx(args.PrevLogIndex+1)]
+	for idx, log := range args.Entries {
+		ridx := rf.RealLogIdx(args.PrevLogIndex) + 1 + idx
+		if ridx < len(rf.log) && rf.log[ridx].Term != log.Term {
+			// 某位置发生了冲突, 覆盖这个位置开始的所有内容
+			rf.log = rf.log[:ridx]
+			rf.log = append(rf.log, args.Entries[idx:]...)
+			break
+		} else if ridx == len(rf.log) {
+			// 没有发生冲突但长度更长了, 直接拼接
+			rf.log = append(rf.log, args.Entries[idx:]...)
+			break
+		}
 	}
-	// 实际上, 不管是否冲突, 直接移除, 因为可能出现重复的RPC
-
-	// 4. Append any new entries not already in the log
-	// 补充apeend的业务
-	rf.log = append(rf.log, args.Entries...)
-	rf.persist()
 	if len(args.Entries) != 0 {
 		DPrintf("server %v 成功进行apeend, lastApplied=%v, len(log)=%v\n", rf.me, rf.lastApplied, len(rf.log))
 	}
+
+	// 4. Append any new entries not already in the log
+	// 补充apeend的业务
+	rf.persist()
 
 	reply.Success = true
 	reply.Term = rf.currentTerm
@@ -667,15 +660,19 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		return
 	}
 
-	if reply.IsInvalidRpc {
-		// 这是一个更早的RPC但却迟到了, 不需要处理
-		return
-	}
-
 	if reply.Success {
 		// server回复成功
-		rf.matchIndex[serverTo] = args.PrevLogIndex + len(args.Entries)
-		rf.nextIndex[serverTo] = rf.matchIndex[serverTo] + 1
+		newMatchIdx := args.PrevLogIndex + len(args.Entries)
+		if newMatchIdx > rf.matchIndex[serverTo] {
+			// 有可能在此期间安装了快照, 导致 rf.matchIndex[serverTo] 本来就更大
+			rf.matchIndex[serverTo] = newMatchIdx
+		}
+
+		newNextIdx := args.PrevLogIndex + len(args.Entries) + 1
+		if newNextIdx > rf.nextIndex[serverTo] {
+			// 有可能在此期间安装了快照, 导致 rf.nextIndex[serverTo] 本来就更大
+			rf.nextIndex[serverTo] = newNextIdx
+		}
 
 		// 需要判断是否可以commit
 		N := rf.VirtualLogIdx(len(rf.log) - 1)
@@ -796,10 +793,7 @@ func (rf *Raft) SendHeartBeats() {
 				LeaderId:     rf.me,
 				PrevLogIndex: rf.nextIndex[i] - 1,
 				LeaderCommit: rf.commitIndex,
-				AppendSeq:    rf.appendSeq,
 			}
-
-			rf.appendSeq += 1
 
 			sendInstallSnapshot := false
 
