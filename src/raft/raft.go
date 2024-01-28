@@ -490,6 +490,7 @@ func (rf *Raft) handleInstallSnapshot(serverTo int) {
 		rf.currentTerm = reply.Term
 		rf.role = Follower
 		rf.votedFor = -1
+		rf.ResetVoteTimer()
 		rf.persist()
 		return
 	}
@@ -712,6 +713,7 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 		rf.currentTerm = reply.Term
 		rf.role = Follower
 		rf.votedFor = -1
+		rf.ResetVoteTimer()
 		rf.persist()
 		return
 	}
@@ -979,8 +981,9 @@ func (rf *Raft) collectVote(serverTo int, args *RequestVoteArgs, muVote *sync.Mu
 	if *voteCount > len(rf.peers)/2 {
 		rf.mu.Lock()
 		// DPrintf("server %v collectVote 获取锁mu", rf.me)
-		if rf.role == Follower {
+		if rf.role == Follower || rf.currentTerm != args.Term {
 			// 有另外一个投票的协程收到了更新的term而更改了自身状态为Follower
+			// 或者自己的term已经过期了, 也就是被新一轮的选举追上了
 			rf.mu.Unlock()
 			// DPrintf("server %v 释放锁mu", rf.me)
 
