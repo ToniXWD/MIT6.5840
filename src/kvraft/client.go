@@ -63,7 +63,7 @@ func (ck *Clerk) Get(key string) string {
 		case ErrHandleOpTimeOut:
 			continue
 		case ErrKeyNotExist:
-			return string(reply.Err)
+			return reply.Value
 		}
 
 		return reply.Value
