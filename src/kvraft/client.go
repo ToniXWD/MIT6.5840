@@ -51,7 +51,7 @@ func (ck *Clerk) Get(key string) string {
 	for {
 		reply := &GetReply{}
 		ok := ck.servers[ck.leaderId].Call("KVServer.Get", args, reply)
-		if !ok || reply.Err == ErrNotLeader {
+		if !ok || reply.Err == ErrNotLeader || reply.Err == ErrLeaderOutDated {
 			ck.leaderId += 1
 			ck.leaderId %= len(ck.servers)
 			continue
@@ -85,7 +85,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	for {
 		reply := &PutAppendReply{}
 		ok := ck.servers[ck.leaderId].Call("KVServer.PutAppend", args, reply)
-		if !ok || reply.Err == ErrNotLeader {
+		if !ok || reply.Err == ErrNotLeader || reply.Err == ErrLeaderOutDated {
 			ck.leaderId += 1
 			ck.leaderId %= len(ck.servers)
 			continue

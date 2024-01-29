@@ -14,7 +14,7 @@ import (
 const Debug = false
 
 const (
-	HandleOpTimeOut = time.Millisecond * 100
+	HandleOpTimeOut = time.Millisecond * 500
 )
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
@@ -47,6 +47,7 @@ type result struct {
 	LastSeq uint64
 	Err     Err
 	Value   string
+	ResTerm int
 }
 
 type KVServer struct {
@@ -54,9 +55,9 @@ type KVServer struct {
 	me         int
 	rf         *raft.Raft
 	applyCh    chan raft.ApplyMsg
-	dead       int32                  // set by Kill()
-	waiCh      map[int64]*chan result // 映射 Identifier->ch
-	historyMap map[int64]*result      // 映射 Identifier->*result
+	dead       int32                // set by Kill()
+	waiCh      map[int]*chan result // 映射 startIndex->ch
+	historyMap map[int64]*result    // 映射 Identifier->*result
 
 	maxraftstate int // snapshot if log grows this big
 	maxMapLen    int
@@ -132,6 +133,7 @@ func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res result) {
 			return
 		} else {
 			res.Err = ErrKeyNotExist
+			res.Value = ""
 			kv.LogInfoDBExecute(op, "", ErrKeyNotExist, isLeader)
 			return
 		}
@@ -155,7 +157,7 @@ func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res result) {
 }
 
 func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
-	_, _, isLeader := kv.rf.Start(*opArgs)
+	startIndex, startTerm, isLeader := kv.rf.Start(*opArgs)
 	if !isLeader {
 		return result{Err: ErrNotLeader, Value: ""}
 	}
@@ -164,13 +166,13 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 
 	// 直接覆盖之前记录的chan
 	newCh := make(chan result)
-	kv.waiCh[opArgs.Identifier] = &newCh
+	kv.waiCh[startIndex] = &newCh
 	DPrintf("leader %v identifier %v Seq %v 的请求: 新建管道: %p\n", kv.me, opArgs.Identifier, opArgs.Seq, &newCh)
 	kv.mu.Unlock() // Start函数耗时较长, 先解锁
 
 	defer func() {
 		kv.mu.Lock()
-		delete(kv.waiCh, opArgs.Identifier)
+		delete(kv.waiCh, startIndex)
 		close(newCh)
 		kv.mu.Unlock()
 	}()
@@ -182,14 +184,21 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 		DPrintf("server %v identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
 		return
 	case msg, success := <-newCh:
-		if !success {
+		if success && msg.ResTerm == startTerm {
+			res = msg
+			return
+		} else if !success {
 			// 通道已经关闭, 有另一个协程收到了消息 或 通道被更新的RPC覆盖
 			// TODO: 是否需要判断消息到达时自己已经不是leader了?
 			DPrintf("server %v identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v, args.Key=%+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key)
 			res.Err = ErrChanClose
 			return
 		} else {
-			return msg
+			// term与一开始不匹配, 说明这个Leader可能过期了
+			DPrintf("server %v identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", kv.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
+			res.Err = ErrLeaderOutDated
+			res.Value = ""
+			return
 		}
 	}
 }
@@ -250,6 +259,7 @@ func (kv *KVServer) ApplyHandler() {
 
 			// 需要判断这个log是否需要被再次应用
 			var res result
+
 			needApply := false
 			if hisMap, exist := kv.historyMap[op.Identifier]; exist {
 				if hisMap.LastSeq == op.Seq {
@@ -269,6 +279,8 @@ func (kv *KVServer) ApplyHandler() {
 			if needApply {
 				// 执行log
 				res = kv.DBExecute(&op, isLeader)
+				res.ResTerm = log.SnapshotTerm
+
 				// 更新历史记录
 				kv.historyMap[op.Identifier] = &res
 			}
@@ -280,7 +292,7 @@ func (kv *KVServer) ApplyHandler() {
 			}
 
 			// Leader还需要额外通知handler处理clerk回复
-			ch, exist := kv.waiCh[op.Identifier]
+			ch, exist := kv.waiCh[log.CommandIndex]
 			if !exist {
 				// 接收端的通道已经被删除了并且当前节点是 leader, 说明这是重复的请求, 但这种情况不应该出现, 所以panic
 				DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
@@ -296,6 +308,7 @@ func (kv *KVServer) ApplyHandler() {
 						DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
 					}
 				}()
+				res.ResTerm = log.SnapshotTerm
 				*ch <- res
 			}()
 		}
@@ -319,7 +332,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	// You may need initialization code here.
 	kv.historyMap = make(map[int64]*result)
 	kv.db = make(map[string]string)
-	kv.waiCh = make(map[int64]*chan result)
+	kv.waiCh = make(map[int]*chan result)
 
 	go kv.ApplyHandler()
 

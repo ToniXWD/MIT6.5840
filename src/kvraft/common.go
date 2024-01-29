@@ -7,6 +7,7 @@ const (
 	ErrKeyNotExist     = "KeyNotExist"
 	ErrHandleOpTimeOut = "HandleOpTimeOut"
 	ErrChanClose       = "ChanClose"
+	ErrLeaderOutDated  = "LeaderOutDated"
 )
 
 // Put or Append
