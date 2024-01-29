@@ -155,7 +155,12 @@ func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res result) {
 }
 
 func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
-	// 调用函数时必须持有mu锁, 且该函数调用结束时会释放锁
+	_, _, isLeader := kv.rf.Start(*opArgs)
+	if !isLeader {
+		return result{Err: ErrNotLeader, Value: ""}
+	}
+
+	kv.mu.Lock()
 
 	// 直接覆盖之前记录的chan
 	newCh := make(chan result)
@@ -170,11 +175,6 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 		kv.mu.Unlock()
 	}()
 
-	_, _, isLeader := kv.rf.Start(*opArgs)
-	if !isLeader {
-		return result{Err: ErrNotLeader, Value: ""}
-	}
-
 	// 等待消息到达或超时
 	select {
 	case <-time.After(HandleOpTimeOut):
@@ -184,6 +184,7 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 	case msg, success := <-newCh:
 		if !success {
 			// 通道已经关闭, 有另一个协程收到了消息 或 通道被更新的RPC覆盖
+			// TODO: 是否需要判断消息到达时自己已经不是leader了?
 			DPrintf("server %v identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v, args.Key=%+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key)
 			res.Err = ErrChanClose
 			return
@@ -202,31 +203,6 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	}
 	opArgs := &Op{OpType: OPGet, Seq: args.Seq, Key: args.Key, Identifier: args.Identifier}
 
-	kv.mu.Lock()
-
-	// 先记录是否存在
-	if clerkHis, exist := kv.historyMap[args.Identifier]; exist {
-		// 客户端标识符存在, 进一步判断seq是否一样
-		if clerkHis.LastSeq == args.Seq {
-			// seq一样, 直接返回历史记录
-			kv.mu.Unlock()
-			reply.Err = clerkHis.Err
-			reply.Value = clerkHis.Value
-			kv.LogInfoReceive(opArgs, 1)
-			return
-		} else if clerkHis.LastSeq < args.Seq {
-			// 此时seq是更新的请求
-			kv.LogInfoReceive(opArgs, 0)
-		} else {
-			// 此时seq是更旧的请求, 由于没有记录更旧的请求结果, 直接panic
-			kv.mu.Unlock()
-			kv.LogInfoReceive(opArgs, 2)
-		}
-	} else {
-		kv.LogInfoReceive(opArgs, 0)
-	}
-
-	// 执行到这里时就是这是一个需要Start的操作
 	res := kv.HandleOp(opArgs)
 	reply.Err = res.Err
 	reply.Value = res.Value
@@ -248,29 +224,6 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		opArgs.OpType = OPAppend
 	}
 
-	kv.mu.Lock()
-
-	// 先记录是否存在
-	if clerkHis, exist := kv.historyMap[args.Identifier]; exist {
-		// 客户端标识符存在, 进一步判断seq是否相等
-		if clerkHis.LastSeq == args.Seq {
-			reply.Err = clerkHis.Err
-			kv.LogInfoReceive(opArgs, 1)
-			return
-		} else if clerkHis.LastSeq < args.Seq {
-			// 此时seq是更新的请求
-			kv.LogInfoReceive(opArgs, 0)
-		} else {
-			// 此时seq是更旧的请求, 由于没有记录更旧的请求结果, 直接panic
-			kv.mu.Unlock()
-			kv.LogInfoReceive(opArgs, 2)
-			panic(nil)
-		}
-	} else {
-		kv.LogInfoReceive(opArgs, 0)
-	}
-
-	// 执行到这里时就是没有找到历史记录的情况
 	res := kv.HandleOp(opArgs)
 	reply.Err = res.Err
 }
@@ -299,12 +252,12 @@ func (kv *KVServer) ApplyHandler() {
 			var res result
 			needApply := false
 			if hisMap, exist := kv.historyMap[op.Identifier]; exist {
-				if hisMap.LastSeq < op.Seq {
-					// 历史记录存在但Seq更小
-					needApply = true
-				} else {
-					// 否则直接使用历史记录
+				if hisMap.LastSeq == op.Seq {
+					// 历史记录存在且Seq相同, 直接套用历史记录
 					res = *hisMap
+				} else if hisMap.LastSeq < op.Seq {
+					// 否则新建
+					needApply = true
 				}
 			} else {
 				// 历史记录不存在
