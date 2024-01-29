@@ -46,14 +46,24 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
+	args := &GetArgs{Key: key, Seq: ck.GetSeq(), Identifier: ck.identifier}
+
 	for {
-		args := &GetArgs{Key: key, Seq: ck.GetSeq(), Identifier: ck.identifier}
 		reply := &GetReply{}
 		ok := ck.servers[ck.leaderId].Call("KVServer.Get", args, reply)
 		if !ok || reply.Err == ErrNotLeader {
 			ck.leaderId += 1
 			ck.leaderId %= len(ck.servers)
 			continue
+		}
+
+		switch reply.Err {
+		case ErrChanClose:
+			continue
+		case ErrHandleOpTimeOut:
+			continue
+		case ErrKeyNotExist:
+			return string(reply.Err)
 		}
 
 		return reply.Value
@@ -70,9 +80,9 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	args := &PutAppendArgs{Key: key, Value: value, Op: op, Seq: ck.GetSeq(), Identifier: ck.identifier}
 
 	for {
-		args := &PutAppendArgs{Key: key, Value: value, Op: op, Seq: ck.GetSeq(), Identifier: ck.identifier}
 		reply := &PutAppendReply{}
 		ok := ck.servers[ck.leaderId].Call("KVServer.PutAppend", args, reply)
 		if !ok || reply.Err == ErrNotLeader {
@@ -81,6 +91,12 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			continue
 		}
 
+		switch reply.Err {
+		case ErrChanClose:
+			continue
+		case ErrHandleOpTimeOut:
+			continue
+		}
 		return
 	}
 }

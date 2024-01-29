@@ -177,6 +177,10 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 
 	// 等待消息到达或超时
 	select {
+	case <-time.After(HandleOpTimeOut):
+		res.Err = ErrHandleOpTimeOut
+		DPrintf("server %v identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
+		return
 	case msg, success := <-newCh:
 		if !success {
 			// 通道已经关闭, 有另一个协程收到了消息 或 通道被更新的RPC覆盖
@@ -186,9 +190,6 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
 		} else {
 			return msg
 		}
-	case <-time.After(HandleOpTimeOut):
-		res.Err = ErrHandleOpTimeOut
-		return
 	}
 }
 
@@ -288,6 +289,7 @@ func (kv *KVServer) killed() bool {
 func (kv *KVServer) ApplyHandler() {
 	for !kv.killed() {
 		log := <-kv.applyCh
+
 		if log.CommandValid {
 
 			op := log.Command.(Op)
@@ -328,7 +330,7 @@ func (kv *KVServer) ApplyHandler() {
 			ch, exist := kv.waiCh[op.Identifier]
 			if !exist {
 				// 接收端的通道已经被删除了并且当前节点是 leader, 说明这是重复的请求, 但这种情况不应该出现, 所以panic
-				DPrintf("leader %v 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
+				DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
 				kv.mu.Unlock()
 				continue
 			}
