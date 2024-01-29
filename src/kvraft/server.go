@@ -289,7 +289,15 @@ func (kv *KVServer) ApplyHandler() {
 			}
 			kv.mu.Unlock()
 			// 发送消息
-			*ch <- res
+			func() {
+				defer func() {
+					if recover() != nil {
+						// 如果这里有 panic，是因为通道关闭
+						DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
+					}
+				}()
+				*ch <- res
+			}()
 		}
 	}
 }
