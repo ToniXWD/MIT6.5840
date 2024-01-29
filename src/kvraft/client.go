@@ -55,6 +55,7 @@ func (ck *Clerk) Get(key string) string {
 			ck.leaderId %= len(ck.servers)
 			continue
 		}
+
 		return reply.Value
 	}
 }
@@ -79,6 +80,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 			ck.leaderId %= len(ck.servers)
 			continue
 		}
+
 		return
 	}
 }
