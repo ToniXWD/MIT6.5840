@@ -44,7 +44,7 @@ type Op struct {
 	Identifier int64
 }
 
-type result struct {
+type Result struct {
 	LastSeq uint64
 	Err     Err
 	Value   string
@@ -57,8 +57,8 @@ type KVServer struct {
 	rf         *raft.Raft
 	applyCh    chan raft.ApplyMsg
 	dead       int32                // set by Kill()
-	waiCh      map[int]*chan result // 映射 startIndex->ch
-	historyMap map[int64]*result    // 映射 Identifier->*result
+	waiCh      map[int]*chan Result // 映射 startIndex->ch
+	historyMap map[int64]*Result    // 映射 Identifier->*result
 
 	maxraftstate      int // snapshot if log grows this big
 	maxMapLen         int
@@ -124,7 +124,7 @@ func (kv *KVServer) LogInfoDBExecute(opArgs *Op, err Err, res string, isLeader b
 	}
 }
 
-func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res result) {
+func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res Result) {
 	// 调用该函数需要持有锁
 	res.LastSeq = op.Seq
 	switch op.OpType {
@@ -159,16 +159,16 @@ func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res result) {
 	return
 }
 
-func (kv *KVServer) HandleOp(opArgs *Op) (res result) {
+func (kv *KVServer) HandleOp(opArgs *Op) (res Result) {
 	startIndex, startTerm, isLeader := kv.rf.Start(*opArgs)
 	if !isLeader {
-		return result{Err: ErrNotLeader, Value: ""}
+		return Result{Err: ErrNotLeader, Value: ""}
 	}
 
 	kv.mu.Lock()
 
 	// 直接覆盖之前记录的chan
-	newCh := make(chan result)
+	newCh := make(chan Result)
 	kv.waiCh[startIndex] = &newCh
 	DPrintf("leader %v identifier %v Seq %v 的请求: 新建管道: %p\n", kv.me, opArgs.Identifier, opArgs.Seq, &newCh)
 	kv.mu.Unlock() // Start函数耗时较长, 先解锁
@@ -267,7 +267,7 @@ func (kv *KVServer) ApplyHandler() {
 			kv.lastIncludedIndex = log.CommandIndex
 
 			// 需要判断这个log是否需要被再次应用
-			var res result
+			var res Result
 
 			needApply := false
 			if hisMap, exist := kv.historyMap[op.Identifier]; exist {
@@ -294,35 +294,26 @@ func (kv *KVServer) ApplyHandler() {
 				kv.historyMap[op.Identifier] = &res
 			}
 
-			if !isLeader {
-				// 不是leader则继续检查下一个log
-				kv.mu.Unlock()
-				continue
-			}
-
 			// Leader还需要额外通知handler处理clerk回复
 			ch, exist := kv.waiCh[log.CommandIndex]
-			if !exist {
-				// 接收端的通道已经被删除了并且当前节点是 leader, 说明这是重复的请求, 但这种情况不应该出现, 所以panic
-				DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
+			if exist {
 				kv.mu.Unlock()
-				continue
-			}
-			kv.mu.Unlock()
-			// 发送消息
-			func() {
-				defer func() {
-					if recover() != nil {
-						// 如果这里有 panic，是因为通道关闭
-						DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
-					}
+				// 发送消息
+				func() {
+					defer func() {
+						if recover() != nil {
+							// 如果这里有 panic，是因为通道关闭
+							DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
+						}
+					}()
+					res.ResTerm = log.SnapshotTerm
+					*ch <- res
 				}()
-				res.ResTerm = log.SnapshotTerm
-				*ch <- res
-			}()
+				kv.mu.Lock()
+			}
+
 			// 每收到一个log就检测是否需要生成快照
-			kv.mu.Lock()
-			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate {
+			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/2 {
 				// 需要生成快照
 				snapShot := kv.GenSnapShot()
 				kv.rf.Snapshot(log.CommandIndex, snapShot)
@@ -361,7 +352,7 @@ func (kv *KVServer) LoadSnapShot(snapShot []byte) {
 	d := labgob.NewDecoder(r)
 
 	tmpDB := make(map[string]string)
-	tmpHistoryMap := make(map[int64]*result)
+	tmpHistoryMap := make(map[int64]*Result)
 	tmpLastIncludedIndex := 0
 	if d.Decode(&tmpDB) != nil ||
 		d.Decode(&tmpHistoryMap) != nil ||
@@ -390,15 +381,15 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 	kv.persister = persister
 
+	// You may need initialization code here.
+	kv.historyMap = make(map[int64]*Result)
+	kv.db = make(map[string]string)
+	kv.waiCh = make(map[int]*chan Result)
+
 	// 先在启动时检查是否有快照
 	kv.mu.Lock()
 	kv.LoadSnapShot(persister.ReadSnapshot())
 	kv.mu.Unlock()
-
-	// You may need initialization code here.
-	kv.historyMap = make(map[int64]*result)
-	kv.db = make(map[string]string)
-	kv.waiCh = make(map[int]*chan result)
 
 	go kv.ApplyHandler()
 
