@@ -26,6 +26,7 @@ if len(args.Entries) != 0 && len(rf.log) > args.PrevLogIndex+1 && rf.log[args.Pr
     DPrintf("server %v 的log与args发生冲突, 进行移除\n", rf.me)
     rf.log = rf.log[:args.PrevLogIndex+1]
 }
+rf.log = append(rf.log, args.Entries...)
 ```
 这段代码所做的事情是, 如果将要追加的位置存在日志项, 且日志项与`RPC`中的日子切片的第一个发生冲突(`Term`不匹配), 则将冲突位置及其之后的日志项清除掉。
 
@@ -35,13 +36,35 @@ if len(args.Entries) != 0 && len(rf.log) > args.PrevLogIndex+1 && rf.log[args.Pr
 3. 由于并发程度高, `Leader`在`RPC1`没有收到回复时又发送了下一个`AppendEntries RPC`, 由于`nextIndex`和`matchIndex`只有在收到回复后才会修改, 因此这个新的`AppendEntries RPC`, 我们记为`RPC2`, 与`RPC1`是一致的
 4. `Follower`收到`RPC2`, 由于`RPC2`和`RPC1`完全相同, 因此其一定不会发生冲突, 结果是`Follower`将相同的一个日志项切片追加了2次!
 
+在考虑另一个场景:
+1. `Leader`先发送了`AppendEntries RPC`, 我们记为`RPC1`
+2. 由于网络问题, `RPC1`没有即时到达`Follower`
+3. `Leader`又追加了新的`log`, 此时又发送了`AppendEntries RPC`, 我们记为`RPC2`
+4. 由于网络问题, 后发送的`RPC2`先到达`Follower`, `Follower`把`RPC2`的日志项追加
+5. 此时`RPC1`到达了`Follower`, `Follower`把`RPC1`的日志项强行追加时将导致`log`被缩短
+
 **解决方案:**
-很简单, 直接截断切片, 去掉`if`判断的条件:
+也就是说, 除了考虑冲突外, 还需要考虑重复的`RPC`以及顺序颠倒的`RPC`, 因此需要检查每个位置的`log`是否匹配, 不匹配就覆盖, 否则不做更改。
+
+这样对于重复的`RPC`就不会重复追加， 并且如果`RPC`顺序颠倒，也就是让`Leader`多通过一次心跳同步
 ```go
-if len(args.Entries) != 0 && len(rf.log) > args.PrevLogIndex+1 {
-    rf.log = rf.log[:args.PrevLogIndex+1]
+for idx, log := range args.Entries {
+	ridx := args.PrevLogIndex + 1 + idx
+	if ridx < len(rf.log) && rf.log[ridx].Term != log.Term {
+		// 某位置发生了冲突, 覆盖这个位置开始的所有内容
+		rf.log = rf.log[:ridx]
+		rf.log = append(rf.log, args.Entries[idx:]...)
+		break
+	} else if ridx == len(rf.log) {
+		// 没有发生冲突但长度更长了, 直接拼接
+		rf.log = append(rf.log, args.Entries[idx:]...)
+		break
+	}
 }
 ```
+
+> 这里的bug是完成`lab3`后才发现的`bug`, `lab2`分支的代码还没有进行这样的修改也能通过测例。原因是在我的设计中，`Start`并没有立即广播心跳, 因此不会存在`RPC`顺序颠倒的情况, 如果想看最新的代码修改, 参见: https://github.com/ToniXWD/MIT6.5840/blob/lab3A/src/raft/raft.go#L606
+
 
 # 2 优化: 快速回退
 在之前的回退实现中, 如果有`Follower`的日志不匹配, 每次`RPC`中, `Leader`会将其`nextIndex`自减1来重试, 但其在某些情况下会导致效率很低, 因此需要`AppendEntries RPC`的回复信息携带更多的字段以加速回退, 核心思想就是:**`Follower`返回更多信息给`Leader`，使其可以以`Term`为单位来回退**
