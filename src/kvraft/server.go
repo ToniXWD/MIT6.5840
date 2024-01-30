@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -59,9 +60,11 @@ type KVServer struct {
 	waiCh      map[int]*chan result // 映射 startIndex->ch
 	historyMap map[int64]*result    // 映射 Identifier->*result
 
-	maxraftstate int // snapshot if log grows this big
-	maxMapLen    int
-	db           map[string]string
+	maxraftstate      int // snapshot if log grows this big
+	maxMapLen         int
+	db                map[string]string
+	persister         *raft.Persister
+	lastIncludedIndex int // 日志中的最高索引
 }
 
 func (kv *KVServer) LogInfoReceive(opArgs *Op, logType int) {
@@ -251,11 +254,17 @@ func (kv *KVServer) killed() bool {
 func (kv *KVServer) ApplyHandler() {
 	for !kv.killed() {
 		log := <-kv.applyCh
-
 		if log.CommandValid {
-
 			op := log.Command.(Op)
 			kv.mu.Lock()
+
+			// 如果在follower一侧, 可能这个log包含在快照中, 直接跳过
+			if log.CommandIndex <= kv.lastIncludedIndex {
+				kv.mu.Unlock()
+				continue
+			}
+
+			kv.lastIncludedIndex = log.CommandIndex
 
 			// 需要判断这个log是否需要被再次应用
 			var res result
@@ -311,7 +320,58 @@ func (kv *KVServer) ApplyHandler() {
 				res.ResTerm = log.SnapshotTerm
 				*ch <- res
 			}()
+			// 每收到一个log就检测是否需要生成快照
+			kv.mu.Lock()
+			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate {
+				// 需要生成快照
+				snapShot := kv.GenSnapShot()
+				kv.rf.Snapshot(log.CommandIndex, snapShot)
+			}
+			kv.mu.Unlock()
+		} else if log.SnapshotValid {
+			// 日志项是一个快照
+			kv.mu.Lock()
+			kv.LoadSnapShot(log.Snapshot)
+			kv.mu.Unlock()
 		}
+	}
+}
+
+func (kv *KVServer) GenSnapShot() []byte {
+	// 调用时必须持有锁mu
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	e.Encode(kv.db)
+	e.Encode(kv.historyMap)
+	e.Encode(kv.lastIncludedIndex)
+
+	serverState := w.Bytes()
+	return serverState
+}
+
+func (kv *KVServer) LoadSnapShot(snapShot []byte) {
+	// 调用时必须持有锁mu
+	if len(snapShot) == 0 || snapShot == nil {
+		DPrintf("server %v LoadSnapShot: 快照为空", kv.me)
+		return
+	}
+
+	r := bytes.NewBuffer(snapShot)
+	d := labgob.NewDecoder(r)
+
+	tmpDB := make(map[string]string)
+	tmpHistoryMap := make(map[int64]*result)
+	tmpLastIncludedIndex := 0
+	if d.Decode(&tmpDB) != nil ||
+		d.Decode(&tmpHistoryMap) != nil ||
+		d.Decode(&tmpLastIncludedIndex) != nil {
+		DPrintf("server %v LoadSnapShot 加载快照失败\n", kv.me)
+	} else {
+		kv.db = tmpDB
+		kv.historyMap = tmpHistoryMap
+		kv.lastIncludedIndex = tmpLastIncludedIndex
+		DPrintf("server %v LoadSnapShot 加载快照成功\n", kv.me)
 	}
 }
 
@@ -328,6 +388,12 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	kv.persister = persister
+
+	// 先在启动时检查是否有快照
+	kv.mu.Lock()
+	kv.LoadSnapShot(persister.ReadSnapshot())
+	kv.mu.Unlock()
 
 	// You may need initialization code here.
 	kv.historyMap = make(map[int64]*result)
