@@ -12,7 +12,7 @@ import (
 	"6.5840/raft"
 )
 
-const Debug = false
+const Debug = true
 
 const (
 	HandleOpTimeOut = time.Millisecond * 500
@@ -307,6 +307,7 @@ func (kv *KVServer) ApplyHandler() {
 						}
 					}()
 					res.ResTerm = log.SnapshotTerm
+
 					*ch <- res
 				}()
 				kv.mu.Lock()
@@ -323,6 +324,7 @@ func (kv *KVServer) ApplyHandler() {
 			// 日志项是一个快照
 			kv.mu.Lock()
 			kv.LoadSnapShot(log.Snapshot)
+			kv.lastIncludedIndex = log.SnapshotIndex
 			kv.mu.Unlock()
 		}
 	}
@@ -335,7 +337,6 @@ func (kv *KVServer) GenSnapShot() []byte {
 
 	e.Encode(kv.db)
 	e.Encode(kv.historyMap)
-	e.Encode(kv.lastIncludedIndex)
 
 	serverState := w.Bytes()
 	return serverState
@@ -353,15 +354,12 @@ func (kv *KVServer) LoadSnapShot(snapShot []byte) {
 
 	tmpDB := make(map[string]string)
 	tmpHistoryMap := make(map[int64]*Result)
-	tmpLastIncludedIndex := 0
 	if d.Decode(&tmpDB) != nil ||
-		d.Decode(&tmpHistoryMap) != nil ||
-		d.Decode(&tmpLastIncludedIndex) != nil {
+		d.Decode(&tmpHistoryMap) != nil {
 		DPrintf("server %v LoadSnapShot 加载快照失败\n", kv.me)
 	} else {
 		kv.db = tmpDB
 		kv.historyMap = tmpHistoryMap
-		kv.lastIncludedIndex = tmpLastIncludedIndex
 		DPrintf("server %v LoadSnapShot 加载快照成功\n", kv.me)
 	}
 }
