@@ -27,7 +27,7 @@ do
         # 测试失败
         fail_count=$((fail_count+1))
         echo "Test iteration $i failed, check 'failure"$target"_$i.log' for details."
-        mv output"target$".log "failure"$target"_$i.log"
+        mv output"$target".log "failure"$target"_$i.log"
     fi
 done
 

@@ -12,10 +12,10 @@ import (
 	"6.5840/raft"
 )
 
-const Debug = true
+const Debug = false
 
 const (
-	HandleOpTimeOut = time.Millisecond * 500
+	HandleOpTimeOut = time.Millisecond * 2000 // 超时为2s
 )
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {

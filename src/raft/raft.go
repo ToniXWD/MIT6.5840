@@ -292,7 +292,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.persist()
 
 	defer func() {
-		rf.ResetHeartTimer(1)
+		rf.ResetHeartTimer(15)
 	}()
 
 	return rf.VirtualLogIdx(len(rf.log) - 1), rf.currentTerm, true
@@ -743,8 +743,8 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 			DPrintf("leader %v 收到 server %v 的回退请求, 原因是log过短, 回退前的nextIndex[%v]=%v, 回退后的nextIndex[%v]=%v\n", rf.me, serverTo, serverTo, rf.nextIndex[serverTo], serverTo, reply.XLen)
 			if rf.lastIncludedIndex >= reply.XLen {
 				// 由于snapshot被截断
-				// 添加InstallSnapshot的处理
-				go rf.handleInstallSnapshot(serverTo)
+				// 下一次心跳添加InstallSnapshot的处理
+				rf.nextIndex[serverTo] = rf.lastIncludedIndex
 			} else {
 				rf.nextIndex[serverTo] = reply.XLen
 			}
@@ -765,8 +765,8 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 
 		if i == rf.lastIncludedIndex && rf.log[rf.RealLogIdx(i)].Term > reply.XTerm {
 			// 要找的位置已经由于snapshot被截断
-			// 添加InstallSnapshot的处理
-			go rf.handleInstallSnapshot(serverTo)
+			// 下一次心跳添加InstallSnapshot的处理
+			rf.nextIndex[serverTo] = rf.lastIncludedIndex
 		} else if rf.log[rf.RealLogIdx(i)].Term == reply.XTerm {
 			// 之前PrevLogIndex发生冲突位置时, Follower的Term自己也有
 
@@ -778,7 +778,7 @@ func (rf *Raft) handleAppendEntries(serverTo int, args *AppendEntriesArgs) {
 			if reply.XIndex <= rf.lastIncludedIndex {
 				// XIndex位置也被截断了
 				// 添加InstallSnapshot的处理
-				go rf.handleInstallSnapshot(serverTo)
+				rf.nextIndex[serverTo] = rf.lastIncludedIndex
 			} else {
 				rf.nextIndex[serverTo] = reply.XIndex
 			}
