@@ -8,6 +8,7 @@ const (
 	ErrHandleOpTimeOut = "HandleOpTimeOut"
 	ErrChanClose       = "ChanClose"
 	ErrLeaderOutDated  = "LeaderOutDated"
+	ERRRPCFailed       = "RPCFailed"
 )
 
 // Put or Append

@@ -3,8 +3,13 @@ package kvraft
 import (
 	"crypto/rand"
 	"math/big"
+	"time"
 
 	"6.5840/labrpc"
+)
+
+const (
+	RpcRetryInterval = time.Microsecond * 20
 )
 
 type Clerk struct {
@@ -52,19 +57,33 @@ func (ck *Clerk) Get(key string) string {
 		reply := &GetReply{}
 		ok := ck.servers[ck.leaderId].Call("KVServer.Get", args, reply)
 		if !ok || reply.Err == ErrNotLeader || reply.Err == ErrLeaderOutDated {
+			if !ok {
+				reply.Err = ERRRPCFailed
+			}
+			if reply.Err != ErrNotLeader {
+				DPrintf("clerk %v Seq %v 重试Get(%v), Err=%s", args.Identifier, args.Key, args.Key, reply.Err)
+			}
+
 			ck.leaderId += 1
 			ck.leaderId %= len(ck.servers)
+			time.Sleep(RpcRetryInterval)
 			continue
 		}
 
 		switch reply.Err {
 		case ErrChanClose:
+			DPrintf("clerk %v Seq %v 重试Get(%v), Err=%s", args.Identifier, args.Key, args.Key, reply.Err)
+			time.Sleep(time.Microsecond * 5)
 			continue
 		case ErrHandleOpTimeOut:
+			DPrintf("clerk %v Seq %v 重试Get(%v), Err=%s", args.Identifier, args.Key, args.Key, reply.Err)
+			time.Sleep(RpcRetryInterval)
 			continue
 		case ErrKeyNotExist:
+			DPrintf("clerk %v Seq %v 成功: Get(%v)=%v, Err=%s", args.Identifier, args.Key, args.Key, reply.Value, reply.Err)
 			return reply.Value
 		}
+		DPrintf("clerk %v Seq %v 成功: Get(%v)=%v, Err=%s", args.Identifier, args.Key, args.Key, reply.Value, reply.Err)
 
 		return reply.Value
 	}
@@ -86,17 +105,31 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		reply := &PutAppendReply{}
 		ok := ck.servers[ck.leaderId].Call("KVServer.PutAppend", args, reply)
 		if !ok || reply.Err == ErrNotLeader || reply.Err == ErrLeaderOutDated {
+			if !ok {
+				reply.Err = ERRRPCFailed
+			}
+			if reply.Err != ErrNotLeader {
+				DPrintf("clerk %v Seq %v 重试%s(%v, %v), Err=%s", args.Identifier, args.Key, args.Op, args.Key, args.Value, reply.Err)
+			}
+
 			ck.leaderId += 1
 			ck.leaderId %= len(ck.servers)
+			time.Sleep(RpcRetryInterval)
 			continue
 		}
 
 		switch reply.Err {
 		case ErrChanClose:
+			DPrintf("clerk %v Seq %v 重试%s(%v, %v), Err=%s", args.Identifier, args.Key, args.Op, args.Key, args.Value, reply.Err)
+			time.Sleep(RpcRetryInterval)
 			continue
 		case ErrHandleOpTimeOut:
+			DPrintf("clerk %v Seq %v 重试%s(%v, %v), Err=%s", args.Identifier, args.Key, args.Op, args.Key, args.Value, reply.Err)
+			time.Sleep(RpcRetryInterval)
 			continue
 		}
+		DPrintf("clerk %v Seq %v 成功: %s(%v, %v), Err=%s", args.Identifier, args.Key, args.Op, args.Key, args.Value, reply.Err)
+
 		return
 	}
 }

@@ -14,7 +14,7 @@ do
     echo "Running test iteration $i of $max_tests..."
     
     # 运行 go 测试命令
-    go test -v -run "$target" &> output"$target".log
+    go test -v -timeout 240s -run "$target" &> output"$target".log
     
     # 检查 go 命令的退出状态
     if [ "$?" -eq 0 ]; then

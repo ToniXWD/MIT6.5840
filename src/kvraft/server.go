@@ -20,17 +20,21 @@ const (
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
-		log.Printf(format, a...)
+		log.Printf("kv---"+format, a...)
 	}
 	return
 }
 
-type OType int
+func ServerLog(format string, a ...interface{}) {
+	DPrintf("server "+format, a...)
+}
+
+type OType string
 
 const (
-	OPGet OType = iota
-	OPPut
-	OPAppend
+	OPGet    OType = "Get"
+	OPPut    OType = "Put"
+	OPAppend OType = "Append"
 )
 
 type Op struct {
@@ -60,11 +64,11 @@ type KVServer struct {
 	waiCh      map[int]*chan Result // 映射 startIndex->ch
 	historyMap map[int64]*Result    // 映射 Identifier->*result
 
-	maxraftstate      int // snapshot if log grows this big
-	maxMapLen         int
-	db                map[string]string
-	persister         *raft.Persister
-	lastIncludedIndex int // 日志中的最高索引
+	maxraftstate int // snapshot if log grows this big
+	maxMapLen    int
+	db           map[string]string
+	persister    *raft.Persister
+	lastApplied  int // 日志中的最高索引
 }
 
 func (kv *KVServer) LogInfoReceive(opArgs *Op, logType int) {
@@ -84,11 +88,11 @@ func (kv *KVServer) LogInfoReceive(opArgs *Op, logType int) {
 	}
 	switch opArgs.OpType {
 	case OPGet:
-		DPrintf("leader %v identifier %v Seq %v %sGet请求: Get(%v),\n", kv.me, opArgs.Identifier, opArgs.Seq, dateStr, opArgs.Key)
+		ServerLog("leader %v identifier %v Seq %v %sGet请求: Get(%v),\n", kv.me, opArgs.Identifier, opArgs.Seq, dateStr, opArgs.Key)
 	case OPPut:
-		DPrintf("leader %v identifier %v Seq %v %sPut请求: Put(%v,%v),\n", kv.me, opArgs.Identifier, opArgs.Seq, dateStr, opArgs.Key, opArgs.Val)
+		ServerLog("leader %v identifier %v Seq %v %sPut请求: Put(%v,%v),\n", kv.me, opArgs.Identifier, opArgs.Seq, dateStr, opArgs.Key, opArgs.Val)
 	case OPAppend:
-		DPrintf("leader %v identifier %v Seq %v %sPut请求: Put(%v,%v),\n", kv.me, opArgs.Identifier, opArgs.Seq, dateStr, opArgs.Key, opArgs.Val)
+		ServerLog("leader %v identifier %v Seq %v %sPut请求: Put(%v,%v),\n", kv.me, opArgs.Identifier, opArgs.Seq, dateStr, opArgs.Key, opArgs.Val)
 	}
 
 	if needPanic {
@@ -104,22 +108,22 @@ func (kv *KVServer) LogInfoDBExecute(opArgs *Op, err Err, res string, isLeader b
 	switch opArgs.OpType {
 	case OPGet:
 		if err != "" {
-			DPrintf("%s %v identifier %v Seq %v DB执行Get请求: Get(%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, err)
+			ServerLog("%s %v DBExecute: identifier %v Seq %v DB执行Get请求: Get(%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, err)
 		} else {
-			DPrintf("%s %v identifier %v Seq %v DB执行Get请求: Get(%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, res)
+			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Get请求: Get(%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, res)
 		}
 	case OPPut:
 		if err != "" {
-			DPrintf("%s %v identifier %v Seq %v DB执行Put请求: Put(%v,%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
+			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Put请求: Put(%v,%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
 
 		} else {
-			DPrintf("%s %v identifier %v Seq %v DB执行Put请求: Put(%v,%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
+			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Put请求: Put(%v,%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
 		}
 	case OPAppend:
 		if err != "" {
-			DPrintf("%s %v identifier %v Seq %v DB执行Append请求: Put(%v,%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
+			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Append请求: Put(%v,%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
 		} else {
-			DPrintf("%s %v identifier %v Seq %v DB执行Append请求: Put(%v,%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
+			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Append请求: Put(%v,%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
 		}
 	}
 }
@@ -160,6 +164,17 @@ func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res Result) {
 }
 
 func (kv *KVServer) HandleOp(opArgs *Op) (res Result) {
+	// 先判断是否有历史记录
+	kv.mu.Lock()
+	if hisMap, exist := kv.historyMap[opArgs.Identifier]; exist && hisMap.LastSeq == opArgs.Seq {
+		kv.mu.Unlock()
+		ServerLog("leader %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 从历史记录返回\n", kv.me, opArgs.Identifier, opArgs.OpType, opArgs.Key, opArgs.Val)
+		return *hisMap
+	}
+	kv.mu.Unlock()
+
+	ServerLog("leader %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 准备调用Start\n", kv.me, opArgs.Identifier, opArgs.OpType, opArgs.Key, opArgs.Val)
+
 	startIndex, startTerm, isLeader := kv.rf.Start(*opArgs)
 	if !isLeader {
 		return Result{Err: ErrNotLeader, Value: ""}
@@ -170,7 +185,7 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res Result) {
 	// 直接覆盖之前记录的chan
 	newCh := make(chan Result)
 	kv.waiCh[startIndex] = &newCh
-	DPrintf("leader %v identifier %v Seq %v 的请求: 新建管道: %p\n", kv.me, opArgs.Identifier, opArgs.Seq, &newCh)
+	ServerLog("leader %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 新建管道: %p\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, &newCh)
 	kv.mu.Unlock() // Start函数耗时较长, 先解锁
 
 	defer func() {
@@ -184,21 +199,22 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res Result) {
 	select {
 	case <-time.After(HandleOpTimeOut):
 		res.Err = ErrHandleOpTimeOut
-		DPrintf("server %v identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
+		ServerLog("server %v identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
 		return
 	case msg, success := <-newCh:
 		if success && msg.ResTerm == startTerm {
 			res = msg
+			ServerLog("server %v HandleOp: identifier %v Seq %v: HandleOp 成功, %s(%v, %v), res=%v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, res.Value)
 			return
 		} else if !success {
 			// 通道已经关闭, 有另一个协程收到了消息 或 通道被更新的RPC覆盖
 			// TODO: 是否需要判断消息到达时自己已经不是leader了?
-			DPrintf("server %v identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v, args.Key=%+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key)
+			ServerLog("server %v HandleOp: identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v, args.Key=%+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key)
 			res.Err = ErrChanClose
 			return
 		} else {
 			// term与一开始不匹配, 说明这个Leader可能过期了
-			DPrintf("server %v identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", kv.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
+			ServerLog("server %v HandleOp: identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", kv.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
 			res.Err = ErrLeaderOutDated
 			res.Value = ""
 			return
@@ -259,12 +275,12 @@ func (kv *KVServer) ApplyHandler() {
 			kv.mu.Lock()
 
 			// 如果在follower一侧, 可能这个log包含在快照中, 直接跳过
-			if log.CommandIndex <= kv.lastIncludedIndex {
+			if log.CommandIndex <= kv.lastApplied {
 				kv.mu.Unlock()
 				continue
 			}
 
-			kv.lastIncludedIndex = log.CommandIndex
+			kv.lastApplied = log.CommandIndex
 
 			// 需要判断这个log是否需要被再次应用
 			var res Result
@@ -296,14 +312,14 @@ func (kv *KVServer) ApplyHandler() {
 
 			// Leader还需要额外通知handler处理clerk回复
 			ch, exist := kv.waiCh[log.CommandIndex]
-			if exist {
+			if exist && isLeader {
 				kv.mu.Unlock()
 				// 发送消息
 				func() {
 					defer func() {
 						if recover() != nil {
 							// 如果这里有 panic，是因为通道关闭
-							DPrintf("leader %v ApplyHandler 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
+							ServerLog("leader %v ApplyHandler: 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
 						}
 					}()
 					res.ResTerm = log.SnapshotTerm
@@ -314,8 +330,8 @@ func (kv *KVServer) ApplyHandler() {
 			}
 
 			// 每收到一个log就检测是否需要生成快照
-			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/2 {
-				// 需要生成快照
+			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/10*9 {
+				// 当达到80%容量时需要生成快照
 				snapShot := kv.GenSnapShot()
 				kv.rf.Snapshot(log.CommandIndex, snapShot)
 			}
@@ -323,8 +339,10 @@ func (kv *KVServer) ApplyHandler() {
 		} else if log.SnapshotValid {
 			// 日志项是一个快照
 			kv.mu.Lock()
-			kv.LoadSnapShot(log.Snapshot)
-			kv.lastIncludedIndex = log.SnapshotIndex
+			if log.SnapshotIndex >= kv.lastApplied {
+				kv.LoadSnapShot(log.Snapshot)
+				kv.lastApplied = log.SnapshotIndex
+			}
 			kv.mu.Unlock()
 		}
 	}
@@ -345,7 +363,7 @@ func (kv *KVServer) GenSnapShot() []byte {
 func (kv *KVServer) LoadSnapShot(snapShot []byte) {
 	// 调用时必须持有锁mu
 	if len(snapShot) == 0 || snapShot == nil {
-		DPrintf("server %v LoadSnapShot: 快照为空", kv.me)
+		ServerLog("server %v LoadSnapShot: 快照为空", kv.me)
 		return
 	}
 
@@ -356,11 +374,11 @@ func (kv *KVServer) LoadSnapShot(snapShot []byte) {
 	tmpHistoryMap := make(map[int64]*Result)
 	if d.Decode(&tmpDB) != nil ||
 		d.Decode(&tmpHistoryMap) != nil {
-		DPrintf("server %v LoadSnapShot 加载快照失败\n", kv.me)
+		ServerLog("server %v LoadSnapShot 加载快照失败\n", kv.me)
 	} else {
 		kv.db = tmpDB
 		kv.historyMap = tmpHistoryMap
-		DPrintf("server %v LoadSnapShot 加载快照成功\n", kv.me)
+		ServerLog("server %v LoadSnapShot 加载快照成功\n", kv.me)
 	}
 }
 
