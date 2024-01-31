@@ -100,63 +100,59 @@ func (kv *KVServer) LogInfoReceive(opArgs *Op, logType int) {
 	}
 }
 
-func (kv *KVServer) LogInfoDBExecute(opArgs *Op, err Err, res string, isLeader bool) {
-	role := "follower"
-	if isLeader {
-		role = "leader"
-	}
+func (kv *KVServer) LogInfoDBExecute(opArgs *Op, err Err, res string) {
 	switch opArgs.OpType {
 	case OPGet:
 		if err != "" {
-			ServerLog("%s %v DBExecute: identifier %v Seq %v DB执行Get请求: Get(%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, err)
+			ServerLog("server %v DBExecute: identifier %v Seq %v DB执行Get请求: Get(%v), Err=%s\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, err)
 		} else {
-			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Get请求: Get(%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, res)
+			ServerLog("server %v DBExecute: iidentifier %v Seq %v DB执行Get请求: Get(%v), res=%s\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, res)
 		}
 	case OPPut:
 		if err != "" {
-			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Put请求: Put(%v,%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
+			ServerLog("server %v DBExecute: iidentifier %v Seq %v DB执行Put请求: Put(%v,%v), Err=%s\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
 
 		} else {
-			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Put请求: Put(%v,%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
+			ServerLog("server %v DBExecute: iidentifier %v Seq %v DB执行Put请求: Put(%v,%v), res=%s\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
 		}
 	case OPAppend:
 		if err != "" {
-			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Append请求: Put(%v,%v), Err=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
+			ServerLog("server %v DBExecute: iidentifier %v Seq %v DB执行Append请求: Put(%v,%v), Err=%s\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, err)
 		} else {
-			ServerLog("%s %v DBExecute: iidentifier %v Seq %v DB执行Append请求: Put(%v,%v), res=%s\n", role, kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
+			ServerLog("server %v DBExecute: iidentifier %v Seq %v DB执行Append请求: Put(%v,%v), res=%s\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, opArgs.Val, res)
 		}
 	}
 }
 
-func (kv *KVServer) DBExecute(op *Op, isLeader bool) (res Result) {
+func (kv *KVServer) DBExecute(op *Op) (res Result) {
 	// 调用该函数需要持有锁
 	res.LastSeq = op.Seq
 	switch op.OpType {
 	case OPGet:
 		val, exist := kv.db[op.Key]
 		if exist {
-			kv.LogInfoDBExecute(op, "", val, isLeader)
+			kv.LogInfoDBExecute(op, "", val)
 			res.Value = val
 			return
 		} else {
 			res.Err = ErrKeyNotExist
 			res.Value = ""
-			kv.LogInfoDBExecute(op, "", ErrKeyNotExist, isLeader)
+			kv.LogInfoDBExecute(op, "", ErrKeyNotExist)
 			return
 		}
 	case OPPut:
 		kv.db[op.Key] = op.Val
-		kv.LogInfoDBExecute(op, "", kv.db[op.Key], isLeader)
+		kv.LogInfoDBExecute(op, "", kv.db[op.Key])
 		return
 	case OPAppend:
 		val, exist := kv.db[op.Key]
 		if exist {
 			kv.db[op.Key] = val + op.Val
-			kv.LogInfoDBExecute(op, "", kv.db[op.Key], isLeader)
+			kv.LogInfoDBExecute(op, "", kv.db[op.Key])
 			return
 		} else {
 			kv.db[op.Key] = op.Val
-			kv.LogInfoDBExecute(op, "", kv.db[op.Key], isLeader)
+			kv.LogInfoDBExecute(op, "", kv.db[op.Key])
 			return
 		}
 	}
@@ -223,12 +219,6 @@ func (kv *KVServer) HandleOp(opArgs *Op) (res Result) {
 }
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// 先判断是不是leader
-	_, isLeader := kv.rf.GetState()
-	if !isLeader {
-		reply.Err = ErrNotLeader
-		return
-	}
 	opArgs := &Op{OpType: OPGet, Seq: args.Seq, Key: args.Key, Identifier: args.Identifier}
 
 	res := kv.HandleOp(opArgs)
@@ -237,14 +227,6 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
-	// 先判断是不是leader
-	_, isLeader := kv.rf.GetState()
-	if !isLeader {
-		reply.Err = ErrNotLeader
-		return
-	}
-
 	opArgs := &Op{Seq: args.Seq, Key: args.Key, Val: args.Value, Identifier: args.Identifier}
 	if args.Op == "Put" {
 		opArgs.OpType = OPPut
@@ -299,11 +281,9 @@ func (kv *KVServer) ApplyHandler() {
 				needApply = true
 			}
 
-			_, isLeader := kv.rf.GetState()
-
 			if needApply {
 				// 执行log
-				res = kv.DBExecute(&op, isLeader)
+				res = kv.DBExecute(&op)
 				res.ResTerm = log.SnapshotTerm
 
 				// 更新历史记录
@@ -312,7 +292,7 @@ func (kv *KVServer) ApplyHandler() {
 
 			// Leader还需要额外通知handler处理clerk回复
 			ch, exist := kv.waiCh[log.CommandIndex]
-			if exist && isLeader {
+			if exist {
 				kv.mu.Unlock()
 				// 发送消息
 				func() {
@@ -330,8 +310,8 @@ func (kv *KVServer) ApplyHandler() {
 			}
 
 			// 每收到一个log就检测是否需要生成快照
-			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/10*9 {
-				// 当达到80%容量时需要生成快照
+			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/100*95 {
+				// 当达到95%容量时需要生成快照
 				snapShot := kv.GenSnapShot()
 				kv.rf.Snapshot(log.CommandIndex, snapShot)
 			}

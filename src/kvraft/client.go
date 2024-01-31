@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	RpcRetryInterval = time.Microsecond * 20
+	RpcRetryInterval = time.Millisecond * 50
 )
 
 type Clerk struct {

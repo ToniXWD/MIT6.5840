@@ -280,6 +280,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// DPrintf("server %v Start 获取锁mu", rf.me)
 	defer func() {
 		// DPrintf("server %v Start 释放锁mu", rf.me)
+		rf.ResetHeartTimer(15)
 		rf.mu.Unlock()
 	}()
 	if rf.role != Leader {
@@ -290,10 +291,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.log = append(rf.log, *newEntry)
 	DPrintf("leader %v 准备持久化", rf.me)
 	rf.persist()
-
-	defer func() {
-		rf.ResetHeartTimer(15)
-	}()
 
 	return rf.VirtualLogIdx(len(rf.log) - 1), rf.currentTerm, true
 }
