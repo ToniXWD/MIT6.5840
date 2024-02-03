@@ -8,6 +8,6 @@
 - [x] Lab2C: 持久化 [文档](./reports/Lab2_Raft_2C.md)
 - [x] Lab2D: 快照 [文档](./reports/Lab2_Raft_2D.md)
 - [x] Lab3A: 分布式KV数据库(无快照) [文档](./reports/Lab3_KVRaft_3A.md)
-- [ ] Lab3B
+- [x] Lab3B: 分布式KV数据库(有快照) [文档](./reports/Lab3_KVRaft_3B.md)
 - [ ] Lab4A
 - [ ] Lab4B
