@@ -1,0 +1,44 @@
+Test: Basic leave/join ...
+2024/02/16 21:48:51 kv---Controler ShardCtrler 2 HandleOp: Start发现不是Leader
+2024/02/16 21:48:51 kv---Controler ShardCtrler 0 HandleOp: Start发现不是Leader
+2024/02/16 21:48:51 kv---Controler ShardCtrler 1 HandleOp: Start发现不是Leader
+2024/02/16 21:48:51 kv---Controler ShardCtrler 2 HandleOp: Start发现不是Leader
+2024/02/16 21:48:51 kv---Controler ShardCtrler 0 HandleOp: Start发现不是Leader
+2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: Start发现不是Leader
+2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 2 请求: Join,Servers=map[1:[x y z]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[1].Shards=
+	[1 1 1 1 1 1 1 1 1 1]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 2 请求: Join,Servers=map[1:[x y z]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[1].Shards=
+	[1 1 1 1 1 1 1 1 1 1]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 2 请求: Join,Servers=map[1:[x y z]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[1].Shards=
+	[1 1 1 1 1 1 1 1 1 1]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 5 请求: Join,Servers=map[2:[a b c]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[2].Shards=
+	[1 2 1 2 1 2 1 2 1 2]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 5 请求: Join,Servers=map[2:[a b c]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[2].Shards=
+	[2 1 2 1 2 1 2 1 2 1]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 5 请求: Join,Servers=map[2:[a b c]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[2].Shards=
+	[1 2 1 2 1 2 1 2 1 2]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 9 请求: Leave,Servers=map[] Gids=[1], Shard=0, Gid=0, Num=0) 结束后的config[3].Shards=
+	[2 2 2 2 2 2 2 2 2 2]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 9 请求: Leave,Servers=map[] Gids=[1], Shard=0, Gid=0, Num=0) 结束后的config[3].Shards=
+	[2 2 2 2 2 2 2 2 2 2]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 9 请求: Leave,Servers=map[] Gids=[1], Shard=0, Gid=0, Num=0) 结束后的config[3].Shards=
+	[2 2 2 2 2 2 2 2 2 2]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 12 请求: Leave,Servers=map[] Gids=[2], Shard=0, Gid=0, Num=0) 结束后的config[4].Shards=
+	[0 0 0 0 0 0 0 0 0 0]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 12 请求: Leave,Servers=map[] Gids=[2], Shard=0, Gid=0, Num=0) 结束后的config[4].Shards=
+	[0 0 0 0 0 0 0 0 0 0]
+2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 12 请求: Leave,Servers=map[] Gids=[2], Shard=0, Gid=0, Num=0) 结束后的config[4].Shards=
+	[0 0 0 0 0 0 0 0 0 0]
+  ... Passed
+Test: Historical queries ...
+  ... Passed
+Test: Move ...
+  ... Passed
+Test: Concurrent leave/join ...
+  ... Passed
+Test: Minimal transfers after joins ...
+  ... Passed
+Test: Minimal transfers after leaves ...
+  ... Passed
+PASS
+ok  	6.5840/shardctrler	2.590s

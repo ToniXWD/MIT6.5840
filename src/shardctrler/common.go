@@ -18,7 +18,10 @@ package shardctrler
 //
 
 // The number of shards.
-const NShards = 10
+
+const (
+	NShards = 10
+)
 
 // A configuration -- an assignment of shards to groups.
 // Please don't change this.
@@ -32,10 +35,21 @@ const (
 	OK = "OK"
 )
 
+const (
+	ErrNotLeader       = "NotLeader"
+	ErrKeyNotExist     = "KeyNotExist"
+	ErrHandleOpTimeOut = "HandleOpTimeOut"
+	ErrChanClose       = "ChanClose"
+	ErrLeaderOutDated  = "LeaderOutDated"
+	ERRRPCFailed       = "RPCFailed"
+)
+
 type Err string
 
 type JoinArgs struct {
-	Servers map[int][]string // new GID -> servers mappings
+	Servers    map[int][]string // new GID -> servers mappings
+	Seq        uint64
+	Identifier int64
 }
 
 type JoinReply struct {
@@ -44,7 +58,9 @@ type JoinReply struct {
 }
 
 type LeaveArgs struct {
-	GIDs []int
+	GIDs       []int
+	Seq        uint64
+	Identifier int64
 }
 
 type LeaveReply struct {
@@ -53,8 +69,10 @@ type LeaveReply struct {
 }
 
 type MoveArgs struct {
-	Shard int
-	GID   int
+	Shard      int
+	GID        int
+	Seq        uint64
+	Identifier int64
 }
 
 type MoveReply struct {
@@ -63,7 +81,9 @@ type MoveReply struct {
 }
 
 type QueryArgs struct {
-	Num int // desired config number
+	Num        int // desired config number
+	Seq        uint64
+	Identifier int64
 }
 
 type QueryReply struct {
