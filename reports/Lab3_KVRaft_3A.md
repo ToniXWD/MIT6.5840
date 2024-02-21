@@ -14,7 +14,7 @@ tags:
 
 `Lab`文档见: http://nil.csail.mit.edu/6.5840/2023/labs/lab-kvraft.html
 
-我的代码: https://github.com/ToniXWD/MIT6.5840/tree/lab3A
+我的代码: https://github.com/GFX9/MIT6.5840/tree/lab3A
 
 # 1 `lab2:Raft bug `修复
 首先又是万恶的老旧代码`bug`修复

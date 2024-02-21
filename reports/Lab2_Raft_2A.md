@@ -16,7 +16,7 @@ Lab2的内容是实现`Raft`算法, `Raft`算法是一种分布式系统中的�
 
 `Lab文档`见: https://pdos.csail.mit.edu/6.824/labs/lab-raft.html
 
-我的代码: https://github.com/ToniXWD/MIT6.5840/tree/lab2A
+我的代码: https://github.com/GFX9/MIT6.5840/tree/lab2A
 
 # 1 任务描述
 首先贴一张原论文的图, 这张图描述了每个`RPC的逻辑, 非常重要`:

@@ -19,8 +19,8 @@ tags:
 [raft原论文](https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf)
 
 我的代码:
-- 时间戳实现: https://github.com/ToniXWD/MIT6.5840/tree/lab2B
-- timer实现: https://github.com/ToniXWD/MIT6.5840/tree/lab2B-timer
+- 时间戳实现: https://github.com/GFX9/MIT6.5840/tree/lab2B
+- timer实现: https://github.com/GFX9/MIT6.5840/tree/lab2B-timer
 
 # 1 2A部分的bug修复
 ## 1.1 修复孤立节点被选举的bug

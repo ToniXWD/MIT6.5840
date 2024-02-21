@@ -14,7 +14,7 @@ tags:
 
 `Lab`文档见: http://nil.csail.mit.edu/6.5840/2023/labs/lab-kvraft.html
 
-我的代码: https://github.com/ToniXWD/MIT6.5840/tree/lab3B
+我的代码: https://github.com/GFX9/MIT6.5840/tree/lab3B
 
 # 1 快照的生成和传递逻辑
 简单说, `lab3B`就是要在底层`raft`的`log`过大时生成快照并截断日志, 从而节省内存空间, 并且快照会持久化存储到本地。因此， 原来的代码结构只需要在以下几个方面做出调整：

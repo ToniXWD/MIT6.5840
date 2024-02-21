@@ -21,7 +21,7 @@ tags:
 
 `Lab文档`见: https://pdos.csail.mit.edu/6.824/labs/lab-raft.html
 
-我的代码: https://github.com/ToniXWD/MIT6.5840/tree/lab2D
+我的代码: https://github.com/GFX9/MIT6.5840/tree/lab2D
 
 # 1 代码层级关系梳理
 我们需要实现的`SnapShot`是在`raft`之上的`service`层提供的, 因为`raft`层并不理解所谓的`状态机`内部状态的机制, 因此有必要了解整个代码的层次结构:

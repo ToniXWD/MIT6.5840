@@ -14,7 +14,7 @@ tags:
 
 `Lab文档`见: https://pdos.csail.mit.edu/6.824/labs/lab-raft.html
 
-我的代码: https://github.com/ToniXWD/MIT6.5840/tree/lab2C
+我的代码: https://github.com/GFX9/MIT6.5840/tree/lab2C
 
 [raft原论文](https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf)
 
@@ -63,7 +63,7 @@ for idx, log := range args.Entries {
 }
 ```
 
-> 这里的bug是完成`lab3`后才发现的`bug`, `lab2`分支的代码还没有进行这样的修改也能通过测例。原因是在我的设计中，`Start`并没有立即广播心跳, 因此不会存在`RPC`顺序颠倒的情况, 如果想看最新的代码修改, 参见: https://github.com/ToniXWD/MIT6.5840/blob/lab3A/src/raft/raft.go#L606
+> 这里的bug是完成`lab3`后才发现的`bug`, `lab2`分支的代码还没有进行这样的修改也能通过测例。原因是在我的设计中，`Start`并没有立即广播心跳, 因此不会存在`RPC`顺序颠倒的情况, 如果想看最新的代码修改, 参见: https://github.com/GFX9/MIT6.5840/blob/lab3A/src/raft/raft.go#L606
 
 
 # 2 优化: 快速回退
