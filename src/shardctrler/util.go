@@ -21,11 +21,32 @@ func ControlerLog(format string, a ...interface{}) {
 	DPrintf("ctl "+format, a...)
 }
 
+func get_max_count_len(newConfig *Config) (map_shard_len map[int]int, max_map_gid_len int, max_map_gid_count int) {
+	map_shard_len = make(map[int]int)
+
+	max_map_gid_len = 0   // gid包含最多shard的数量
+	max_map_gid_count = 0 // 含最多shard的数量的group的数量
+
+	for _, gid := range newConfig.Shards {
+		map_shard_len[gid]++
+		if map_shard_len[gid] > max_map_gid_len {
+			max_map_gid_len = map_shard_len[gid]
+		}
+	}
+
+	for _, gid := range newConfig.Shards {
+		if map_shard_len[gid] == max_map_gid_len {
+			max_map_gid_count += 1
+		}
+	}
+	return
+}
+
 func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 	lastConfig := configs[len(configs)-1]
 	newConfig := Config{
 		Num:    lastConfig.Num + 1,
-		Shards: [NShards]int{},
+		Shards: lastConfig.Shards,
 		Groups: make(map[int][]string),
 	}
 
@@ -37,22 +58,46 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 		newConfig.Groups[gid] = servers
 	}
 
-	gids := make([]int, 0, len(newConfig.Groups))
-	for gid := range newConfig.Groups {
-		gids = append(gids, gid)
-	}
+	// first config shard
+	if len(lastConfig.Groups) == 0 {
+		gids := make([]int, 0, len(newConfig.Groups))
+		for gid := range newConfig.Groups {
+			gids = append(gids, gid)
+		}
 
-	sort.Ints(gids)
+		groupNum := len(gids)
+		if groupNum == 0 {
+			panic("no groups to assign shards to")
+		}
 
-	groupNum := len(gids)
-	if groupNum == 0 {
-		panic("no groups to assign shards to")
-	}
+		for shard := 0; shard < NShards; shard++ {
+			mapGid := gids[shard%groupNum]
+			newConfig.Shards[shard] = mapGid
+		}
+	} else {
+		// Reallocate shards
+		map_shard_len, max_map_gid_len, max_map_gid_count := get_max_count_len(&newConfig)
 
-	// Reallocate shards
-	for shard := 0; shard < NShards; shard++ {
-		mapGid := gids[shard%groupNum]
-		newConfig.Shards[shard] = mapGid
+		for new_gid := range newGroups {
+			map_shard_len[new_gid] = 0
+			idx := 0
+			for max_map_gid_len > map_shard_len[new_gid]+1 {
+				old_gid := newConfig.Shards[idx]
+
+				if map_shard_len[old_gid] == max_map_gid_len {
+					// old_gid标识的这个group分配了最多的shard, 将当前的shard重新分配给新的Group
+					newConfig.Shards[idx] = new_gid
+					max_map_gid_count -= map_shard_len[old_gid]
+					map_shard_len[old_gid]--
+					if max_map_gid_count == 0 {
+						// 原来映射最多的组都已经被剥夺了一个映射, 需要重新统计
+						map_shard_len, max_map_gid_len, max_map_gid_count = get_max_count_len(&newConfig)
+					}
+				}
+				idx++
+				idx %= NShards
+			}
+		}
 	}
 
 	return newConfig
