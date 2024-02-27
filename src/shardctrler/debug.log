@@ -1,44 +1,184 @@
-Test: Basic leave/join ...
-2024/02/16 21:48:51 kv---Controler ShardCtrler 2 HandleOp: Start发现不是Leader
-2024/02/16 21:48:51 kv---Controler ShardCtrler 0 HandleOp: Start发现不是Leader
-2024/02/16 21:48:51 kv---Controler ShardCtrler 1 HandleOp: Start发现不是Leader
-2024/02/16 21:48:51 kv---Controler ShardCtrler 2 HandleOp: Start发现不是Leader
-2024/02/16 21:48:51 kv---Controler ShardCtrler 0 HandleOp: Start发现不是Leader
-2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: Start发现不是Leader
-2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 2 请求: Join,Servers=map[1:[x y z]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[1].Shards=
-	[1 1 1 1 1 1 1 1 1 1]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 2 请求: Join,Servers=map[1:[x y z]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[1].Shards=
-	[1 1 1 1 1 1 1 1 1 1]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 2 请求: Join,Servers=map[1:[x y z]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[1].Shards=
-	[1 1 1 1 1 1 1 1 1 1]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 5 请求: Join,Servers=map[2:[a b c]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[2].Shards=
-	[1 2 1 2 1 2 1 2 1 2]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 5 请求: Join,Servers=map[2:[a b c]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[2].Shards=
-	[2 1 2 1 2 1 2 1 2 1]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 5 请求: Join,Servers=map[2:[a b c]] Gids=[], Shard=0, Gid=0, Num=0) 结束后的config[2].Shards=
-	[1 2 1 2 1 2 1 2 1 2]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 9 请求: Leave,Servers=map[] Gids=[1], Shard=0, Gid=0, Num=0) 结束后的config[3].Shards=
-	[2 2 2 2 2 2 2 2 2 2]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 9 请求: Leave,Servers=map[] Gids=[1], Shard=0, Gid=0, Num=0) 结束后的config[3].Shards=
-	[2 2 2 2 2 2 2 2 2 2]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 9 请求: Leave,Servers=map[] Gids=[1], Shard=0, Gid=0, Num=0) 结束后的config[3].Shards=
-	[2 2 2 2 2 2 2 2 2 2]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 2 HandleOp: identifier 1943052622584295830 Seq 12 请求: Leave,Servers=map[] Gids=[2], Shard=0, Gid=0, Num=0) 结束后的config[4].Shards=
-	[0 0 0 0 0 0 0 0 0 0]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 1 HandleOp: identifier 1943052622584295830 Seq 12 请求: Leave,Servers=map[] Gids=[2], Shard=0, Gid=0, Num=0) 结束后的config[4].Shards=
-	[0 0 0 0 0 0 0 0 0 0]
-2024/02/16 21:48:52 kv---Controler ShardCtrler 0 HandleOp: identifier 1943052622584295830 Seq 12 请求: Leave,Servers=map[] Gids=[2], Shard=0, Gid=0, Num=0) 结束后的config[4].Shards=
-	[0 0 0 0 0 0 0 0 0 0]
+=== RUN   TestMulti
+Test: Multi-group join/leave ...
+2024/02/27 22:19:24 kv-ctl 1 HandleOp: Start发现不是Leader
+2024/02/27 22:19:24 kv-ctl 0 HandleOp: Start发现不是Leader
+2024/02/27 22:19:24 kv-ctl 2 HandleOp: Start发现不是Leader
+2024/02/27 22:19:24 kv-ctl 1 HandleOp: Start发现不是Leader
+2024/02/27 22:19:24 kv-ctl 0 HandleOp: Start发现不是Leader
+2024/02/27 22:19:24 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 2 请求: Join, Shard=0) 操作前的config[0].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:24 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 2 请求: Join, Shard=0) 操作后的config[1].Shards=[1 2 1 2 1 2 1 2 1 2]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 2 请求: Join, Shard=0) 操作前的config[0].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 2 请求: Join, Shard=0) 操作后的config[1].Shards=[2 1 2 1 2 1 2 1 2 1]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 2 请求: Join, Shard=0) 操作前的config[0].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 2 请求: Join, Shard=0) 操作后的config[1].Shards=[1 2 1 2 1 2 1 2 1 2]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 5 请求: Join, Shard=0) 操作前的config[1].Shards=[1 2 1 2 1 2 1 2 1 2]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 5 请求: Join, Shard=0) 操作后的config[2].Shards=[1 2 3 1 2 3 1 2 3 1]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 5 请求: Join, Shard=0) 操作前的config[1].Shards=[2 1 2 1 2 1 2 1 2 1]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 5 请求: Join, Shard=0) 操作后的config[2].Shards=[2 1 3 2 1 3 2 1 3 2]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 5 请求: Join, Shard=0) 操作前的config[1].Shards=[1 2 1 2 1 2 1 2 1 2]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 5 请求: Join, Shard=0) 操作后的config[2].Shards=[1 2 3 1 2 3 1 2 3 1]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 9 请求: Leave, Shard=0) 操作前的config[2].Shards=[1 2 3 1 2 3 1 2 3 1]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 9 请求: Leave, Shard=0) 操作后的config[3].Shards=[2 2 2 2 2 2 2 2 2 2]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 9 请求: Leave, Shard=0) 操作前的config[2].Shards=[2 1 3 2 1 3 2 1 3 2]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 9 请求: Leave, Shard=0) 操作后的config[3].Shards=[2 2 2 2 2 2 2 2 2 2]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 9 请求: Leave, Shard=0) 操作前的config[2].Shards=[1 2 3 1 2 3 1 2 3 1]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 9 请求: Leave, Shard=0) 操作后的config[3].Shards=[2 2 2 2 2 2 2 2 2 2]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 13 请求: Leave, Shard=0) 操作前的config[3].Shards=[2 2 2 2 2 2 2 2 2 2]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 13 请求: Leave, Shard=0) 操作后的config[4].Shards=[0 0 0 0 0 0 0 0 0 0]
   ... Passed
-Test: Historical queries ...
+Test: Concurrent multi leave/join ...
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 13 请求: Leave, Shard=0) 操作前的config[3].Shards=[2 2 2 2 2 2 2 2 2 2]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 13 请求: Leave, Shard=0) 操作后的config[4].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3669471440158808863 Seq 0 请求: Join, Shard=0) 操作前的config[4].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3669471440158808863 Seq 0 请求: Join, Shard=0) 操作后的config[5].Shards=[1009 2009 3009 1009 2009 3009 1009 2009 3009 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3986749422416429262 Seq 0 请求: Join, Shard=0) 操作前的config[5].Shards=[1009 2009 3009 1009 2009 3009 1009 2009 3009 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3986749422416429262 Seq 0 请求: Join, Shard=0) 操作后的config[6].Shards=[2003 1009 2009 3009 3003 1003 2003 1009 2009 3009]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 13 请求: Leave, Shard=0) 操作前的config[3].Shards=[2 2 2 2 2 2 2 2 2 2]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 13 请求: Leave, Shard=0) 操作后的config[4].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2761882794355690042 Seq 0 请求: Join, Shard=0) 操作前的config[6].Shards=[2003 1009 2009 3009 3003 1003 2003 1009 2009 3009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2761882794355690042 Seq 0 请求: Join, Shard=0) 操作后的config[7].Shards=[1009 2009 3009 1003 2003 3003 3002 1002 2002 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1620036827869755619 Seq 0 请求: Join, Shard=0) 操作前的config[7].Shards=[1009 2009 3009 1003 2003 3003 3002 1002 2002 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1620036827869755619 Seq 0 请求: Join, Shard=0) 操作后的config[8].Shards=[3002 1005 2005 3005 1003 2009 3009 2003 3003 1002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 344024854217802996 Seq 0 请求: Join, Shard=0) 操作前的config[8].Shards=[3002 1005 2005 3005 1003 2009 3009 2003 3003 1002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 344024854217802996 Seq 0 请求: Join, Shard=0) 操作后的config[9].Shards=[1005 3005 2002 1009 1008 2008 3008 1003 2003 3002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1351958717682543265 Seq 0 请求: Join, Shard=0) 操作前的config[9].Shards=[1005 3005 2002 1009 1008 2008 3008 1003 2003 3002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1351958717682543265 Seq 0 请求: Join, Shard=0) 操作后的config[10].Shards=[1006 3009 1005 3008 2003 3006 2005 1008 2008 2002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3986749422416429262 Seq 1 请求: Leave, Shard=0) 操作前的config[10].Shards=[1006 3009 1005 3008 2003 3006 2005 1008 2008 2002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3986749422416429262 Seq 1 请求: Leave, Shard=0) 操作后的config[11].Shards=[3009 1005 3008 1006 2005 1008 2008 3006 3002 1002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3669471440158808863 Seq 1 请求: Leave, Shard=0) 操作前的config[11].Shards=[3009 1005 3008 1006 2005 1008 2008 3006 3002 1002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 3669471440158808863 Seq 1 请求: Leave, Shard=0) 操作后的config[12].Shards=[3006 3002 2002 2006 1006 2005 2008 1005 1002 3005]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3669471440158808863 Seq 0 请求: Join, Shard=0) 操作前的config[4].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3669471440158808863 Seq 0 请求: Join, Shard=0) 操作后的config[5].Shards=[1009 2009 3009 1009 2009 3009 1009 2009 3009 1009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3986749422416429262 Seq 0 请求: Join, Shard=0) 操作前的config[5].Shards=[1009 2009 3009 1009 2009 3009 1009 2009 3009 1009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3986749422416429262 Seq 0 请求: Join, Shard=0) 操作后的config[6].Shards=[3003 1009 2009 3009 1003 2003 3003 1009 2009 3009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2761882794355690042 Seq 0 请求: Join, Shard=0) 操作前的config[6].Shards=[3003 1009 2009 3009 1003 2003 3003 1009 2009 3009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2761882794355690042 Seq 0 请求: Join, Shard=0) 操作后的config[7].Shards=[1009 3009 1002 2002 2009 1003 2003 3003 3002 1009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1620036827869755619 Seq 0 请求: Join, Shard=0) 操作前的config[7].Shards=[1009 3009 1002 2002 2009 1003 2003 3003 3002 1009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1620036827869755619 Seq 0 请求: Join, Shard=0) 操作后的config[8].Shards=[2005 3005 1003 2003 3002 1002 2002 3009 2009 3003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 344024854217802996 Seq 0 请求: Join, Shard=0) 操作前的config[8].Shards=[2005 3005 1003 2003 3002 1002 2002 3009 2009 3003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 344024854217802996 Seq 0 请求: Join, Shard=0) 操作后的config[9].Shards=[3009 2008 3005 3003 1009 1008 1003 2003 2002 2005]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1351958717682543265 Seq 0 请求: Join, Shard=0) 操作前的config[9].Shards=[3009 2008 3005 3003 1009 1008 1003 2003 2002 2005]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1351958717682543265 Seq 0 请求: Join, Shard=0) 操作后的config[10].Shards=[2006 1005 3002 2009 1006 3009 2008 3003 2005 2003]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1620036827869755619 Seq 1 请求: Leave, Shard=0) 操作前的config[12].Shards=[3006 3002 2002 2006 1006 2005 2008 1005 1002 3005]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1620036827869755619 Seq 1 请求: Leave, Shard=0) 操作后的config[13].Shards=[1008 2006 1006 1005 1009 2008 2002 1002 3008 1003]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1351958717682543265 Seq 1 请求: Leave, Shard=0) 操作前的config[13].Shards=[1008 2006 1006 1005 1009 2008 2002 1002 3008 1003]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 1351958717682543265 Seq 1 请求: Leave, Shard=0) 操作后的config[14].Shards=[1003 2002 1002 3008 2008 3002 1008 1006 1005 1009]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3669471440158808863 Seq 0 请求: Join, Shard=0) 操作前的config[4].Shards=[0 0 0 0 0 0 0 0 0 0]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3669471440158808863 Seq 0 请求: Join, Shard=0) 操作后的config[5].Shards=[3009 1009 2009 3009 1009 2009 3009 1009 2009 3009]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3986749422416429262 Seq 0 请求: Join, Shard=0) 操作前的config[5].Shards=[3009 1009 2009 3009 1009 2009 3009 1009 2009 3009]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3986749422416429262 Seq 0 请求: Join, Shard=0) 操作后的config[6].Shards=[1009 1003 2003 3003 2009 3009 1009 1003 2003 3003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2761882794355690042 Seq 0 请求: Join, Shard=0) 操作前的config[6].Shards=[1009 1003 2003 3003 2009 3009 1009 1003 2003 3003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2761882794355690042 Seq 0 请求: Join, Shard=0) 操作后的config[7].Shards=[2003 3009 1003 3002 2002 3003 2009 1009 1002 2003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1620036827869755619 Seq 0 请求: Join, Shard=0) 操作前的config[7].Shards=[2003 3009 1003 3002 2002 3003 2009 1009 1002 2003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1620036827869755619 Seq 0 请求: Join, Shard=0) 操作后的config[8].Shards=[1009 3009 3005 2003 1003 3002 2005 3003 2009 1002]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 344024854217802996 Seq 0 请求: Join, Shard=0) 操作前的config[8].Shards=[1009 3009 3005 2003 1003 3002 2005 3003 2009 1002]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 344024854217802996 Seq 0 请求: Join, Shard=0) 操作后的config[9].Shards=[2008 2002 1003 1009 3003 2003 3002 3009 3005 1008]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1351958717682543265 Seq 0 请求: Join, Shard=0) 操作前的config[9].Shards=[2008 2002 1003 1009 3003 2003 3002 3009 3005 1008]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1351958717682543265 Seq 0 请求: Join, Shard=0) 操作后的config[10].Shards=[1008 3006 2002 1009 3003 2003 3002 3008 2008 1003]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2761882794355690042 Seq 1 请求: Leave, Shard=0) 操作前的config[14].Shards=[1003 2002 1002 3008 2008 3002 1008 1006 1005 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2761882794355690042 Seq 1 请求: Leave, Shard=0) 操作后的config[15].Shards=[3008 1005 1009 1003 1002 2008 1008 1006 3008 1005]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 344024854217802996 Seq 1 请求: Leave, Shard=0) 操作前的config[15].Shards=[3008 1005 1009 1003 1002 2008 1008 1006 3008 1005]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 344024854217802996 Seq 1 请求: Leave, Shard=0) 操作后的config[16].Shards=[1005 1009 1003 1002 1008 1006 1005 1009 1003 1002]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: Start发现不是Leader
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3986749422416429262 Seq 1 请求: Leave, Shard=0) 操作前的config[10].Shards=[2006 1005 3002 2009 1006 3009 2008 3003 2005 2003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3986749422416429262 Seq 1 请求: Leave, Shard=0) 操作前的config[10].Shards=[1008 3006 2002 1009 3003 2003 3002 3008 2008 1003]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2814731685239297685 Seq 0 请求: Join, Shard=0) 操作前的config[16].Shards=[1005 1009 1003 1002 1008 1006 1005 1009 1003 1002]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3986749422416429262 Seq 1 请求: Leave, Shard=0) 操作后的config[11].Shards=[1009 3008 1003 2002 1002 1008 3005 2009 1006 2006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3669471440158808863 Seq 1 请求: Leave, Shard=0) 操作前的config[11].Shards=[1009 3008 1003 2002 1002 1008 3005 2009 1006 2006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 3669471440158808863 Seq 1 请求: Leave, Shard=0) 操作后的config[12].Shards=[3005 2008 1002 2002 1006 2005 1003 2006 3006 3008]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1620036827869755619 Seq 1 请求: Leave, Shard=0) 操作前的config[12].Shards=[3005 2008 1002 2002 1006 2005 1003 2006 3006 3008]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1620036827869755619 Seq 1 请求: Leave, Shard=0) 操作后的config[13].Shards=[1006 3006 3008 2006 1005 1003 2008 1002 2002 1008]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1351958717682543265 Seq 1 请求: Leave, Shard=0) 操作前的config[13].Shards=[1006 3006 3008 2006 1005 1003 2008 1002 2002 1008]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3986749422416429262 Seq 1 请求: Leave, Shard=0) 操作后的config[11].Shards=[3002 3008 2008 2002 1009 1002 2005 1005 2006 1003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3669471440158808863 Seq 1 请求: Leave, Shard=0) 操作前的config[11].Shards=[3002 3008 2008 2002 1009 1002 2005 1005 2006 1003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 1351958717682543265 Seq 1 请求: Leave, Shard=0) 操作后的config[14].Shards=[1009 1006 3008 1005 1003 2008 1002 2002 1008 3002]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 3669471440158808863 Seq 1 请求: Leave, Shard=0) 操作后的config[12].Shards=[3005 1009 2002 1005 2006 1003 3006 3008 1002 1008]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2761882794355690042 Seq 1 请求: Leave, Shard=0) 操作前的config[14].Shards=[1009 1006 3008 1005 1003 2008 1002 2002 1008 3002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2814731685239297685 Seq 0 请求: Join, Shard=0) 操作后的config[17].Shards=[1009 1008 1006 3007 1005 1003 1002 1007 2007 1009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2761882794355690042 Seq 1 请求: Leave, Shard=0) 操作后的config[15].Shards=[1009 1006 1003 3008 1005 2008 1002 1008 1009 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 344024854217802996 Seq 1 请求: Leave, Shard=0) 操作前的config[15].Shards=[1009 1006 1003 3008 1005 2008 1002 1008 1009 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 344024854217802996 Seq 1 请求: Leave, Shard=0) 操作后的config[16].Shards=[1005 1002 1008 1009 1006 1003 1005 1002 1008 1009]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1620036827869755619 Seq 1 请求: Leave, Shard=0) 操作前的config[12].Shards=[3005 1009 2002 1005 2006 1003 3006 3008 1002 1008]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1620036827869755619 Seq 1 请求: Leave, Shard=0) 操作后的config[13].Shards=[3008 1008 3006 2008 3002 1009 2002 1005 2006 1003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1351958717682543265 Seq 1 请求: Leave, Shard=0) 操作前的config[13].Shards=[3008 1008 3006 2008 3002 1009 2002 1005 2006 1003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 1351958717682543265 Seq 1 请求: Leave, Shard=0) 操作后的config[14].Shards=[3008 1009 1003 1002 1008 2008 3002 2002 1005 1006]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2761882794355690042 Seq 1 请求: Leave, Shard=0) 操作前的config[14].Shards=[3008 1009 1003 1002 1008 2008 3002 2002 1005 1006]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2761882794355690042 Seq 1 请求: Leave, Shard=0) 操作后的config[15].Shards=[1008 1006 1002 1009 1003 2008 1005 3008 1008 1006]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 344024854217802996 Seq 1 请求: Leave, Shard=0) 操作前的config[15].Shards=[1008 1006 1002 1009 1003 2008 1005 3008 1008 1006]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 344024854217802996 Seq 1 请求: Leave, Shard=0) 操作后的config[16].Shards=[1006 1002 1009 1003 1005 1008 1006 1002 1009 1003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2814731685239297685 Seq 0 请求: Join, Shard=0) 操作前的config[16].Shards=[1005 1002 1008 1009 1006 1003 1005 1002 1008 1009]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2814731685239297685 Seq 0 请求: Join, Shard=0) 操作后的config[17].Shards=[1005 1002 1006 2007 3007 1008 1009 1003 1007 1005]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2814731685239297685 Seq 0 请求: Join, Shard=0) 操作前的config[16].Shards=[1006 1002 1009 1003 1005 1008 1006 1002 1009 1003]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2814731685239297685 Seq 0 请求: Join, Shard=0) 操作后的config[17].Shards=[1002 1003 2007 3007 1005 1008 1006 1009 1007 1002]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2814731685239297685 Seq 1 请求: Leave, Shard=0) 操作前的config[17].Shards=[1009 1008 1006 3007 1005 1003 1002 1007 2007 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2814731685239297685 Seq 1 请求: Leave, Shard=0) 操作后的config[18].Shards=[1003 1002 1007 1005 1008 1006 1009 1003 1002 1007]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2933376585600536015 Seq 0 请求: Join, Shard=0) 操作前的config[18].Shards=[1003 1002 1007 1005 1008 1006 1009 1003 1002 1007]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2933376585600536015 Seq 0 请求: Join, Shard=0) 操作后的config[19].Shards=[1008 1009 3001 1003 1007 1006 1001 2001 1002 1005]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 900831057979773423 Seq 0 请求: Join, Shard=0) 操作前的config[19].Shards=[1008 1009 3001 1003 1007 1006 1001 2001 1002 1005]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 900831057979773423 Seq 0 请求: Join, Shard=0) 操作后的config[20].Shards=[1005 1006 1001 2001 1003 1008 2004 1002 1007 1009]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2814731685239297685 Seq 1 请求: Leave, Shard=0) 操作前的config[17].Shards=[1002 1003 2007 3007 1005 1008 1006 1009 1007 1002]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2814731685239297685 Seq 1 请求: Leave, Shard=0) 操作后的config[18].Shards=[1005 1008 1006 1009 1007 1002 1003 1005 1008 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2814731685239297685 Seq 1 请求: Leave, Shard=0) 操作前的config[17].Shards=[1005 1002 1006 2007 3007 1008 1009 1003 1007 1005]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2814731685239297685 Seq 1 请求: Leave, Shard=0) 操作后的config[18].Shards=[1005 1002 1006 1008 1009 1003 1007 1005 1002 1006]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2679631476089427510 Seq 0 请求: Join, Shard=0) 操作前的config[20].Shards=[1005 1006 1001 2001 1003 1008 2004 1002 1007 1009]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2679631476089427510 Seq 0 请求: Join, Shard=0) 操作后的config[21].Shards=[1000 2001 1008 1007 2000 3000 1003 3001 1004 1001]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2933376585600536015 Seq 0 请求: Join, Shard=0) 操作前的config[18].Shards=[1005 1002 1006 1008 1009 1003 1007 1005 1002 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2933376585600536015 Seq 0 请求: Join, Shard=0) 操作后的config[19].Shards=[3001 2001 1009 1007 1005 1002 1006 1008 1001 1003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 900831057979773423 Seq 0 请求: Join, Shard=0) 操作前的config[19].Shards=[3001 2001 1009 1007 1005 1002 1006 1008 1001 1003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 900831057979773423 Seq 0 请求: Join, Shard=0) 操作后的config[20].Shards=[1002 3001 2004 3004 1003 2001 1009 1007 1005 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2679631476089427510 Seq 0 请求: Join, Shard=0) 操作前的config[20].Shards=[1002 3001 2004 3004 1003 2001 1009 1007 1005 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2679631476089427510 Seq 0 请求: Join, Shard=0) 操作后的config[21].Shards=[2004 1009 1007 1004 3004 1003 1005 2000 2001 1006]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2933376585600536015 Seq 0 请求: Join, Shard=0) 操作前的config[18].Shards=[1005 1008 1006 1009 1007 1002 1003 1005 1008 1006]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2933376585600536015 Seq 0 请求: Join, Shard=0) 操作后的config[19].Shards=[2001 1003 1005 1009 1001 3001 1002 1008 1006 1007]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 900831057979773423 Seq 0 请求: Join, Shard=0) 操作前的config[19].Shards=[2001 1003 1005 1009 1001 3001 1002 1008 1006 1007]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 900831057979773423 Seq 0 请求: Join, Shard=0) 操作后的config[20].Shards=[3001 3004 1005 1009 1003 1007 1002 1004 2004 1001]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2679631476089427510 Seq 0 请求: Join, Shard=0) 操作前的config[20].Shards=[3001 3004 1005 1009 1003 1007 1002 1004 2004 1001]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2679631476089427510 Seq 0 请求: Join, Shard=0) 操作后的config[21].Shards=[3001 1006 2004 1003 1007 1005 1009 1002 3000 2001]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 900831057979773423 Seq 1 请求: Leave, Shard=0) 操作前的config[21].Shards=[1000 2001 1008 1007 2000 3000 1003 3001 1004 1001]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 900831057979773423 Seq 1 请求: Leave, Shard=0) 操作后的config[22].Shards=[1009 1007 1000 2001 1008 1004 2000 3000 1003 3001]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2933376585600536015 Seq 1 请求: Leave, Shard=0) 操作前的config[22].Shards=[1009 1007 1000 2001 1008 1004 2000 3000 1003 3001]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2933376585600536015 Seq 1 请求: Leave, Shard=0) 操作后的config[23].Shards=[1001 1004 1003 1005 1002 1009 1007 1000 1008 2000]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2679631476089427510 Seq 1 请求: Leave, Shard=0) 操作前的config[23].Shards=[1001 1004 1003 1005 1002 1009 1007 1000 1008 2000]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 2679631476089427510 Seq 1 请求: Leave, Shard=0) 操作后的config[24].Shards=[1004 1009 1007 1000 1008 1001 1005 1002 1006 1003]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 900831057979773423 Seq 1 请求: Leave, Shard=0) 操作前的config[21].Shards=[2004 1009 1007 1004 3004 1003 1005 2000 2001 1006]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 900831057979773423 Seq 1 请求: Leave, Shard=0) 操作后的config[22].Shards=[2001 1006 1002 1000 3000 1008 1001 3001 1009 1007]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2933376585600536015 Seq 1 请求: Leave, Shard=0) 操作前的config[22].Shards=[2001 1006 1002 1000 3000 1008 1001 3001 1009 1007]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2933376585600536015 Seq 1 请求: Leave, Shard=0) 操作后的config[23].Shards=[1008 1001 1009 1005 3000 1004 1003 1007 1000 1002]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2679631476089427510 Seq 1 请求: Leave, Shard=0) 操作前的config[23].Shards=[1008 1001 1009 1005 3000 1004 1003 1007 1000 1002]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 2679631476089427510 Seq 1 请求: Leave, Shard=0) 操作后的config[24].Shards=[1003 1000 1008 1001 1007 1002 1006 1009 1005 1004]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 900831057979773423 Seq 1 请求: Leave, Shard=0) 操作前的config[21].Shards=[3001 1006 2004 1003 1007 1005 1009 1002 3000 2001]
   ... Passed
-Test: Move ...
+Test: Minimal transfers after multijoins ...
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 900831057979773423 Seq 1 请求: Leave, Shard=0) 操作后的config[22].Shards=[1006 3001 1005 1009 1003 1007 2001 1008 1002 3000]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2933376585600536015 Seq 1 请求: Leave, Shard=0) 操作前的config[22].Shards=[1006 3001 1005 1009 1003 1007 2001 1008 1002 3000]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2933376585600536015 Seq 1 请求: Leave, Shard=0) 操作后的config[23].Shards=[1009 1002 1001 1005 1008 3000 1004 1007 1000 2000]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2679631476089427510 Seq 1 请求: Leave, Shard=0) 操作前的config[23].Shards=[1009 1002 1001 1005 1008 3000 1004 1007 1000 2000]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 2679631476089427510 Seq 1 请求: Leave, Shard=0) 操作后的config[24].Shards=[1002 1001 1008 1004 1006 1003 1009 1005 1007 1000]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 16 请求: Join, Shard=0) 操作前的config[24].Shards=[1004 1009 1007 1000 1008 1001 1005 1002 1006 1003]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 16 请求: Join, Shard=0) 操作后的config[25].Shards=[1000 1005 14 1009 1007 1008 1002 15 11 13]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 16 请求: Join, Shard=0) 操作前的config[24].Shards=[1002 1001 1008 1004 1006 1003 1009 1005 1007 1000]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 16 请求: Join, Shard=0) 操作后的config[25].Shards=[14 1002 1007 12 1000 11 1001 1004 1003 1005]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 16 请求: Join, Shard=0) 操作前的config[24].Shards=[1003 1000 1008 1001 1007 1002 1006 1009 1005 1004]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 16 请求: Join, Shard=0) 操作后的config[25].Shards=[1002 1009 1000 14 11 12 1004 1003 1005 15]
   ... Passed
-Test: Concurrent leave/join ...
+Test: Minimal transfers after multileaves ...
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 18 请求: Leave, Shard=0) 操作前的config[25].Shards=[1000 1005 14 1009 1007 1008 1002 15 11 13]
+2024/02/27 22:19:25 kv-ctl 2 HandleOp: identifier 4026777317793987247 Seq 18 请求: Leave, Shard=0) 操作后的config[26].Shards=[1004 1001 1006 1003 1000 1005 1009 1007 1008 1002]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 18 请求: Leave, Shard=0) 操作前的config[25].Shards=[1002 1009 1000 14 11 12 1004 1003 1005 15]
+2024/02/27 22:19:25 kv-ctl 1 HandleOp: identifier 4026777317793987247 Seq 18 请求: Leave, Shard=0) 操作后的config[26].Shards=[1008 1000 1002 1009 1005 1004 1003 1007 1001 1006]
   ... Passed
-Test: Minimal transfers after joins ...
-  ... Passed
-Test: Minimal transfers after leaves ...
-  ... Passed
-PASS
-ok  	6.5840/shardctrler	2.590s
+Test: Check Same config on servers ...
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 18 请求: Leave, Shard=0) 操作前的config[25].Shards=[14 1002 1007 12 1000 11 1001 1004 1003 1005]
+2024/02/27 22:19:25 kv-ctl 0 HandleOp: identifier 4026777317793987247 Seq 18 请求: Leave, Shard=0) 操作后的config[26].Shards=[1002 1007 1001 1004 1003 1000 1008 1006 1009 1005]
+2024/02/27 22:19:26 c1.Shards: [1004 1001 1006 1003 1000 1005 1009 1007 1008 1002], c2.Shards: [1002 1007 1001 1004 1003 1000 1008 1006 1009 1005]
+    test_test.go:63: Shards wrong
+--- FAIL: TestMulti (1.74s)
+FAIL
+exit status 1
+FAIL	6.5840/shardctrler	1.742s

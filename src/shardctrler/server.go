@@ -90,16 +90,16 @@ func (sc *ShardCtrler) HandleOp(opArgs *Op) (res Result) {
 	sc.mu.Lock()
 	if hisMap, exist := sc.historyMap[opArgs.Identifier]; exist && hisMap.LastSeq == opArgs.Seq {
 		sc.mu.Unlock()
-		// ControlerLog("ShardCtrler %v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 从历史记录返回\n", sc.me, opArgs.Identifier, opArgs.OpType, opArgs.Servers, opArgs.GIDs, opArgs.Shard, opArgs.GID, opArgs.Num)
+		// ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 从历史记录返回\n", sc.me, opArgs.Identifier, opArgs.OpType, opArgs.Servers, opArgs.GIDs, opArgs.Shard, opArgs.GID, opArgs.Num)
 		return *hisMap
 	}
 	sc.mu.Unlock() // Start函数耗时较长, 先解锁
 
-	// ControlerLog("ShardCtrler %v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 准备调用Start\n", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Servers, opArgs.GIDs, opArgs.Shard, opArgs.GID, opArgs.Num)
+	// ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 准备调用Start\n", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Servers, opArgs.GIDs, opArgs.Shard, opArgs.GID, opArgs.Num)
 
 	startIndex, startTerm, isLeader := sc.rf.Start(*opArgs)
 	if !isLeader {
-		ControlerLog("ShardCtrler %v HandleOp: Start发现不是Leader", sc.me)
+		ControlerLog("%v HandleOp: Start发现不是Leader", sc.me)
 		return Result{Err: ErrNotLeader}
 	}
 
@@ -108,7 +108,7 @@ func (sc *ShardCtrler) HandleOp(opArgs *Op) (res Result) {
 	// 直接覆盖之前记录的chan
 	newCh := make(chan Result)
 	sc.waiCh[startIndex] = &newCh
-	// ControlerLog("ShardCtrler %v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 新建管道: %p\n", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Servers, opArgs.GIDs, opArgs.Shard, opArgs.GID, opArgs.Num, &newCh)
+	// ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 新建管道: %p\n", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Servers, opArgs.GIDs, opArgs.Shard, opArgs.GID, opArgs.Num, &newCh)
 	sc.mu.Unlock() // Start函数耗时较长, 先解锁
 
 	defer func() {
@@ -122,22 +122,22 @@ func (sc *ShardCtrler) HandleOp(opArgs *Op) (res Result) {
 	select {
 	case <-time.After(HandleOpTimeOut):
 		res.Err = ErrHandleOpTimeOut
-		ControlerLog("shardctrler %v HandleOp: identifier %v Seq %v: 超时", sc.me, opArgs.Identifier, opArgs.Seq)
+		ControlerLog("%v HandleOp: identifier %v Seq %v: 超时", sc.me, opArgs.Identifier, opArgs.Seq)
 		return
 	case msg, success := <-newCh:
 		if success && msg.ResTerm == startTerm {
 			res = msg
-			// ControlerLog("ShardCtrler %v HandleOp: identifier %v Seq %v, HandleOp %s 成功\n", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType)
+			// ControlerLog("%v HandleOp: identifier %v Seq %v, HandleOp %s 成功\n", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType)
 			return
 		} else if !success {
 			// 通道已经关闭, 有另一个协程收到了消息 或 通道被更新的RPC覆盖
 			// TODO: 是否需要判断消息到达时自己已经不是leader了?
-			ControlerLog("shardctrler %v HandleOp: identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType)
+			ControlerLog("%v HandleOp: identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v", sc.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType)
 			res.Err = ErrChanClose
 			return
 		} else {
 			// term与一开始不匹配, 说明这个Leader可能过期了
-			ControlerLog("shardctrler %v HandleOp: identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", sc.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
+			ControlerLog("%v HandleOp: identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", sc.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
 			res.Err = ErrLeaderOutDated
 			return
 		}
@@ -209,7 +209,7 @@ func (sc *ShardCtrler) ApplyHandler() {
 			op := log.Command.(Op)
 			sc.mu.Lock()
 
-			// ControlerLog("shardctrler %v ApplyHandler 收到log: identifier %v Seq %v, type %v", sc.me, op.Identifier, op.Seq, op.OpType)
+			// ControlerLog("%v ApplyHandler 收到log: identifier %v Seq %v, type %v", sc.me, op.Identifier, op.Seq, op.OpType)
 
 			// 需要判断这个log是否需要被再次应用
 			var res Result
@@ -230,9 +230,14 @@ func (sc *ShardCtrler) ApplyHandler() {
 
 			if needApply {
 				// 执行log
+				if op.OpType != OPQuery {
+					ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s, Shard=%v) 操作前的config[%v].Shards=%+v\n", sc.me, op.Identifier, op.Seq, op.OpType, op.Shard, len(sc.configs)-1, sc.configs[len(sc.configs)-1].Shards)
+					// ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 操作前的config[%v].Shards=%+v\n", sc.me, op.Identifier, op.Seq, op.OpType, op.Servers, op.GIDs, op.Shard, op.GID, op.Num, len(sc.configs)-1, sc.configs[len(sc.configs)-1].Shards)
+				}
 				res = sc.ConfigExecute(&op)
 				if op.OpType != OPQuery {
-					ControlerLog("ShardCtrler %v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 结束后的config[%v].Shards=\n\t%+v\n", sc.me, op.Identifier, op.Seq, op.OpType, op.Servers, op.GIDs, op.Shard, op.GID, op.Num, len(sc.configs)-1, sc.configs[len(sc.configs)-1].Shards)
+					ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s, Shard=%v) 操作后的config[%v].Shards=%+v\n", sc.me, op.Identifier, op.Seq, op.OpType, op.Shard, len(sc.configs)-1, sc.configs[len(sc.configs)-1].Shards)
+					// ControlerLog("%v HandleOp: identifier %v Seq %v 请求: %s,Servers=%+v Gids=%+v, Shard=%v, Gid=%v, Num=%v) 结束后的config[%v].Shards=%+v\n", sc.me, op.Identifier, op.Seq, op.OpType, op.Servers, op.GIDs, op.Shard, op.GID, op.Num, len(sc.configs)-1, sc.configs[len(sc.configs)-1].Shards)
 				}
 
 				res.ResTerm = log.SnapshotTerm

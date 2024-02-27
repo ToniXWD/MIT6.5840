@@ -2,22 +2,23 @@ package shardctrler
 
 import (
 	"log"
+	"sort"
 	"time"
 )
 
-var Debug = true
+var Debug = false
 
 const HandleOpTimeOut = time.Millisecond * 2000 // 超时为2s
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
-		log.Printf("kv---"+format, a...)
+		log.Printf("kv-"+format, a...)
 	}
 	return
 }
 
 func ControlerLog(format string, a ...interface{}) {
-	DPrintf("Controler "+format, a...)
+	DPrintf("ctl "+format, a...)
 }
 
 func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
@@ -40,6 +41,8 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 	for gid := range newConfig.Groups {
 		gids = append(gids, gid)
 	}
+
+	sort.Ints(gids)
 
 	groupNum := len(gids)
 	if groupNum == 0 {
@@ -79,6 +82,8 @@ func RemoveGidServers(configs []Config, gids []int) Config {
 			remainGids = append(remainGids, gid)
 		}
 	}
+
+	sort.Ints(remainGids)
 
 	groupNum := len(remainGids)
 	if groupNum == 0 {
