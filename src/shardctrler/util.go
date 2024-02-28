@@ -7,11 +7,18 @@ import (
 )
 
 var Debug = false
+var Special = false
 
 const HandleOpTimeOut = time.Millisecond * 2000 // 超时为2s
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
+		log.Printf("kv-"+format, a...)
+	}
+	return
+}
+func SDPrintf(format string, a ...interface{}) (n int, err error) {
+	if Special {
 		log.Printf("kv-"+format, a...)
 	}
 	return
@@ -99,6 +106,29 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 			}
 		}
 	}
+	SDPrintf("")
+
+	SDPrintf("CreateNewConfig--lastConfig.Groups= %v, newGroups=%+v", lastConfig.Groups, newGroups)
+	SDPrintf("CreateNewConfig--lastConfig.Shards= %v", lastConfig.Shards)
+
+	SDPrintf("CreateNewConfig--newConfig.Groups= %v", newConfig.Groups)
+	SDPrintf("CreateNewConfig--newConfig.Shards= %v", newConfig.Shards)
+
+	for gid := range newConfig.Groups {
+		missing := gid
+		found := false
+		for _, maped_gid := range newConfig.Shards {
+			if maped_gid == gid {
+				found = true
+			}
+		}
+		if !found {
+
+			SDPrintf("missing gid= %v", missing)
+
+			SDPrintf("error")
+		}
+	}
 
 	return newConfig
 }
@@ -140,7 +170,27 @@ func RemoveGidServers(configs []Config, gids []int) Config {
 		mapGid := remainGids[shard%groupNum]
 		newConfig.Shards[shard] = mapGid
 	}
+	SDPrintf("")
+	SDPrintf("RemoveGidServers-lastConfig.Groups= %v, gids= %v", lastConfig.Groups, gids)
+	SDPrintf("RemoveGidServers-lastConfig.Shards= %v", lastConfig.Shards)
 
+	SDPrintf("RemoveGidServers-newConfig.Groups= %v", newConfig.Groups)
+	SDPrintf("RemoveGidServers-newConfig.Shards= %v", newConfig.Shards)
+
+	for gid := range newConfig.Groups {
+		missing := gid
+		found := false
+		for _, maped_gid := range newConfig.Shards {
+			if maped_gid == gid {
+				found = true
+			}
+		}
+		if !found {
+			SDPrintf("missing gid= %v", missing)
+
+			SDPrintf("error")
+		}
+	}
 	return newConfig
 }
 
@@ -165,6 +215,27 @@ func MoveShard2Gid(configs []Config, n_shard int, n_gid int) Config {
 			newConfig.Shards[shard] = gid
 		} else {
 			newConfig.Shards[n_shard] = n_gid
+		}
+	}
+	SDPrintf("")
+	SDPrintf("MoveShard2Gid-lastConfig.Groups= %v, n_shard= %v,n_gid= %v ", lastConfig.Groups, n_shard, n_gid)
+	SDPrintf("MoveShard2Gid-lastConfig.Shards= %v", lastConfig.Shards)
+
+	SDPrintf("MoveShard2Gid-newConfig.Groups= %v", newConfig.Groups)
+	SDPrintf("MoveShard2Gid-newConfig.Shards= %v", newConfig.Shards)
+
+	for gid := range newConfig.Groups {
+		missing := gid
+		found := false
+		for _, maped_gid := range newConfig.Shards {
+			if maped_gid == gid {
+				found = true
+			}
+		}
+		if !found {
+			SDPrintf("missing gid= %v", missing)
+
+			SDPrintf("error")
 		}
 	}
 	return newConfig
