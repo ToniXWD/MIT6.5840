@@ -66,19 +66,19 @@ func (sc *ShardCtrler) ConfigExecute(op *Op) (res Result) {
 	res.LastSeq = op.Seq
 	switch op.OpType {
 	case OPJoin:
-		newConfig := CreateNewConfig(sc.configs, op.Servers)
+		newConfig := CreateNewConfig(sc.me, sc.configs, op.Servers)
 		sc.CheckAppendConfig(newConfig)
 		res.Err = ""
 	case OPLeave:
-		newConfig := RemoveGidServers(sc.configs, op.GIDs)
+		newConfig := RemoveGidServers(sc.me, sc.configs, op.GIDs)
 		sc.CheckAppendConfig(newConfig)
 		res.Err = ""
 	case OPMove:
-		newConfig := MoveShard2Gid(sc.configs, op.Shard, op.GID)
+		newConfig := MoveShard2Gid(sc.me, sc.configs, op.Shard, op.GID)
 		sc.CheckAppendConfig(newConfig)
 		res.Err = ""
 	case OPQuery:
-		rConfig := QueryConfig(sc.configs, op.Num)
+		rConfig := QueryConfig(sc.me, sc.configs, op.Num)
 		res.Config = rConfig
 		res.Err = ""
 	}

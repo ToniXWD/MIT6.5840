@@ -7,3 +7,4 @@ src/raft/output*
 src/raft/*.log
 src/kvraft/my_test.go
 src/kvraft/*.log
+src/shardctrler/*.log

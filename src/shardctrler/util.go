@@ -2,12 +2,13 @@ package shardctrler
 
 import (
 	"log"
+	"math"
 	"sort"
 	"time"
 )
 
 var Debug = false
-var Special = false
+var Special = true
 
 const HandleOpTimeOut = time.Millisecond * 2000 // 超时为2s
 
@@ -49,7 +50,34 @@ func get_max_count_len(newConfig *Config) (map_shard_len map[int]int, max_map_gi
 	return
 }
 
-func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
+func get_min_count_len(newConfig *Config) (map_shard_min map[int]interface{}) {
+
+	map_shard_min = make(map[int]interface{})
+
+	map_shard_len := make(map[int]int)
+
+	min_map_gid_len := math.MaxInt // gid包含最少shard的数量
+
+	for _, gid := range newConfig.Shards {
+		if _, exist := newConfig.Groups[gid]; exist {
+			map_shard_len[gid]++
+		}
+	}
+
+	for _, count := range map_shard_len {
+		min_map_gid_len = int(math.Min(float64(count), float64(min_map_gid_len)))
+	}
+
+	for gid, count := range map_shard_len {
+		if count == min_map_gid_len {
+			map_shard_min[gid] = nil
+		}
+	}
+
+	return
+}
+
+func CreateNewConfig(me int, configs []Config, newGroups map[int][]string) Config {
 	lastConfig := configs[len(configs)-1]
 	newConfig := Config{
 		Num:    lastConfig.Num + 1,
@@ -61,11 +89,15 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 	for gid, servers := range lastConfig.Groups {
 		newConfig.Groups[gid] = servers
 	}
+
+	new_gids := make([]int, 0)
 	for gid, servers := range newGroups {
+		// group的数量不能超过NShards
 		newConfig.Groups[gid] = servers
+		new_gids = append(new_gids, gid)
 	}
 
-	// first config shard
+	// first config shard or previous config is empty
 	if len(lastConfig.Groups) == 0 {
 		gids := make([]int, 0, len(newConfig.Groups))
 		for gid := range newConfig.Groups {
@@ -85,7 +117,7 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 		// Reallocate shards
 		map_shard_len, max_map_gid_len, max_map_gid_count := get_max_count_len(&newConfig)
 
-		for new_gid := range newGroups {
+		for _, new_gid := range new_gids {
 			map_shard_len[new_gid] = 0
 			idx := 0
 			for max_map_gid_len > map_shard_len[new_gid]+1 {
@@ -96,6 +128,7 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 					newConfig.Shards[idx] = new_gid
 					max_map_gid_count -= map_shard_len[old_gid]
 					map_shard_len[old_gid]--
+					map_shard_len[new_gid]++
 					if max_map_gid_count == 0 {
 						// 原来映射最多的组都已经被剥夺了一个映射, 需要重新统计
 						map_shard_len, max_map_gid_len, max_map_gid_count = get_max_count_len(&newConfig)
@@ -106,13 +139,15 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 			}
 		}
 	}
-	SDPrintf("")
+	SDPrintf("%v", me)
 
-	SDPrintf("CreateNewConfig--lastConfig.Groups= %v, newGroups=%+v", lastConfig.Groups, newGroups)
-	SDPrintf("CreateNewConfig--lastConfig.Shards= %v", lastConfig.Shards)
+	SDPrintf("%v-CreateNewConfig-lastConfig.Groups= %v, newGroups=%+v, len(lastConfig.Groups)=%v", me, lastConfig.Groups, newGroups, len(lastConfig.Groups))
+	SDPrintf("%v-CreateNewConfig-lastConfig.Shards= %v", me, lastConfig.Shards)
 
-	SDPrintf("CreateNewConfig--newConfig.Groups= %v", newConfig.Groups)
-	SDPrintf("CreateNewConfig--newConfig.Shards= %v", newConfig.Shards)
+	SDPrintf("%v-CreateNewConfig-newConfig.Groups= %v, len(newConfig.Groups)=%v", me, newConfig.Groups, len(newConfig.Groups))
+	SDPrintf("%v-CreateNewConfig-newConfig.Shards= %v", me, newConfig.Shards)
+
+	// to_delte_gids := make([]int, 0)
 
 	for gid := range newConfig.Groups {
 		missing := gid
@@ -123,17 +158,19 @@ func CreateNewConfig(configs []Config, newGroups map[int][]string) Config {
 			}
 		}
 		if !found {
-
-			SDPrintf("missing gid= %v", missing)
-
-			SDPrintf("error")
+			// to_delte_gids = append(to_delte_gids, missing)
+			SDPrintf("%v-CreateNewConfig, missing gid= %v", me, missing)
 		}
 	}
+
+	// for _, missing_gid := range to_delte_gids {
+	// 	delete(newConfig.Groups, missing_gid)
+	// }
 
 	return newConfig
 }
 
-func RemoveGidServers(configs []Config, gids []int) Config {
+func RemoveGidServers(me int, configs []Config, gids []int) Config {
 	if len(configs) == 0 {
 		panic("len(configs) == 0")
 	}
@@ -162,6 +199,12 @@ func RemoveGidServers(configs []Config, gids []int) Config {
 
 	groupNum := len(remainGids)
 	if groupNum == 0 {
+		SDPrintf("%v", me)
+		SDPrintf("%v-RemoveGidServers-lastConfig.Groups= %v, gids= %v, len(lastConfig.Groups)=%v", me, lastConfig.Groups, gids, len(lastConfig.Groups))
+		SDPrintf("%v-RemoveGidServers-lastConfig.Shards= %v", me, lastConfig.Shards)
+
+		SDPrintf("%v-RemoveGidServers-newConfig.Groups= %v, len(newConfig.Groups)=%v", me, newConfig.Groups, len(newConfig.Groups))
+		SDPrintf("%v-RemoveGidServers-newConfig.Shards= %v", me, newConfig.Shards)
 		return newConfig
 	}
 
@@ -170,12 +213,12 @@ func RemoveGidServers(configs []Config, gids []int) Config {
 		mapGid := remainGids[shard%groupNum]
 		newConfig.Shards[shard] = mapGid
 	}
-	SDPrintf("")
-	SDPrintf("RemoveGidServers-lastConfig.Groups= %v, gids= %v", lastConfig.Groups, gids)
-	SDPrintf("RemoveGidServers-lastConfig.Shards= %v", lastConfig.Shards)
+	SDPrintf("%v", me)
+	SDPrintf("%v-RemoveGidServers-lastConfig.Groups= %v, gids= %v, len(lastConfig.Groups)=%v", me, lastConfig.Groups, gids, len(lastConfig.Groups))
+	SDPrintf("%v-RemoveGidServers-lastConfig.Shards= %v", me, lastConfig.Shards)
 
-	SDPrintf("RemoveGidServers-newConfig.Groups= %v", newConfig.Groups)
-	SDPrintf("RemoveGidServers-newConfig.Shards= %v", newConfig.Shards)
+	SDPrintf("%v-RemoveGidServers-newConfig.Groups= %v, len(newConfig.Groups)=%v", me, newConfig.Groups, len(newConfig.Groups))
+	SDPrintf("%v-RemoveGidServers-newConfig.Shards= %v", me, newConfig.Shards)
 
 	for gid := range newConfig.Groups {
 		missing := gid
@@ -186,7 +229,7 @@ func RemoveGidServers(configs []Config, gids []int) Config {
 			}
 		}
 		if !found {
-			SDPrintf("missing gid= %v", missing)
+			SDPrintf("%v-RemoveGidServers, missing gid= %v", me, missing)
 
 			SDPrintf("error")
 		}
@@ -194,7 +237,7 @@ func RemoveGidServers(configs []Config, gids []int) Config {
 	return newConfig
 }
 
-func MoveShard2Gid(configs []Config, n_shard int, n_gid int) Config {
+func MoveShard2Gid(me int, configs []Config, n_shard int, n_gid int) Config {
 	if len(configs) == 0 {
 		panic("len(configs) == 0")
 	}
@@ -217,12 +260,12 @@ func MoveShard2Gid(configs []Config, n_shard int, n_gid int) Config {
 			newConfig.Shards[n_shard] = n_gid
 		}
 	}
-	SDPrintf("")
-	SDPrintf("MoveShard2Gid-lastConfig.Groups= %v, n_shard= %v,n_gid= %v ", lastConfig.Groups, n_shard, n_gid)
-	SDPrintf("MoveShard2Gid-lastConfig.Shards= %v", lastConfig.Shards)
+	SDPrintf("%v", me)
+	SDPrintf("%v-MoveShard2Gid-lastConfig.Groups= %v, n_shard= %v,n_gid= %v, len(lastConfig.Groups)=%v", me, lastConfig.Groups, n_shard, n_gid, len(lastConfig.Groups))
+	SDPrintf("%v-MoveShard2Gid-lastConfig.Shards= %v", me, lastConfig.Shards)
 
-	SDPrintf("MoveShard2Gid-newConfig.Groups= %v", newConfig.Groups)
-	SDPrintf("MoveShard2Gid-newConfig.Shards= %v", newConfig.Shards)
+	SDPrintf("%v-MoveShard2Gid-newConfig.Groups= %v, len(newConfig.Groups)=%v", me, newConfig.Groups, len(newConfig.Groups))
+	SDPrintf("%v-MoveShard2Gid-newConfig.Shards= %v", me, newConfig.Shards)
 
 	for gid := range newConfig.Groups {
 		missing := gid
@@ -233,7 +276,7 @@ func MoveShard2Gid(configs []Config, n_shard int, n_gid int) Config {
 			}
 		}
 		if !found {
-			SDPrintf("missing gid= %v", missing)
+			SDPrintf("%v-MoveShard2Gid, missing gid= %v", missing)
 
 			SDPrintf("error")
 		}
@@ -241,7 +284,7 @@ func MoveShard2Gid(configs []Config, n_shard int, n_gid int) Config {
 	return newConfig
 }
 
-func QueryConfig(configs []Config, num int) Config {
+func QueryConfig(me int, configs []Config, num int) Config {
 	if len(configs) == 0 {
 		return Config{Num: 0}
 	}
