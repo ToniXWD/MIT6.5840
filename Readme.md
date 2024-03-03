@@ -9,5 +9,5 @@
 - [x] Lab2D: 快照 [文档](./reports/Lab2_Raft_2D.md)
 - [x] Lab3A: 分布式KV数据库(无快照) [文档](./reports/Lab3_KVRaft_3A.md)
 - [x] Lab3B: 分布式KV数据库(有快照) [文档](./reports/Lab3_KVRaft_3B.md)
-- [ ] Lab4A
+- [x] Lab4A: 分片数据库-分片控制器 [文档](./reports/lab4_ShardKV_4A.md)
 - [ ] Lab4B
