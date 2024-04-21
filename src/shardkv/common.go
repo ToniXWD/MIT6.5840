@@ -14,28 +14,39 @@ import (
 // You will have to modify these definitions.
 //
 
-const Debug = false
+const DebugServer = false
+const DebugClient = true
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug {
-		log.Printf("kv---"+format, a...)
-	}
+	log.Printf("kv---"+format, a...)
 	return
 }
 
 func ServerLog(gid int, format string, a ...interface{}) {
+	if !DebugServer {
+		return
+	}
 	server_info := fmt.Sprintf("group %v ", gid)
 	DPrintf(server_info+format, a...)
 }
 
+func ClientLog(format string, a ...interface{}) {
+	if !DebugClient {
+		return
+	}
+	DPrintf("client "+format, a...)
+}
+
 const (
-	OK                 = "OK"
-	ErrNoKey           = "ErrNoKey"
-	ErrWrongGroup      = "ErrWrongGroup"
-	ErrWrongLeader     = "ErrWrongLeader"
-	ErrHandleOpTimeOut = "HandleOpTimeOut"
-	ErrChanClose       = "ChanClose"
-	ErrLeaderOutDated  = "LeaderOutDated"
+	OK                       = "OK"
+	ErrNoKey                 = "ErrNoKey"
+	ErrWrongLeader           = "ErrWrongLeader"
+	ErrHandleOpTimeOut       = "HandleOpTimeOut"
+	ErrChanClose             = "ChanClose"
+	ErrLeaderOutDated        = "LeaderOutDated"
+	ErrWrongShardForCurGroup = "ErrWrongShardForCurGroup"
+	ErrGroupIsInMigrant      = "ErrGroupIsInMigrant"
+	ErrOldConfigForClient    = "ErrOldConfigForClient"
 )
 
 type Err string
@@ -51,6 +62,7 @@ type PutAppendArgs struct {
 	// otherwise RPC will break.
 	Seq        uint64
 	Identifier int64
+	ConfigNum  int // config number
 }
 
 type PutAppendReply struct {
@@ -62,6 +74,7 @@ type GetArgs struct {
 	// You'll have to add definitions here.
 	Seq        uint64
 	Identifier int64
+	ConfigNum  int // config number
 }
 
 type GetReply struct {

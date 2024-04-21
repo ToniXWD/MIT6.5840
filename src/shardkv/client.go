@@ -73,24 +73,41 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 // keeps trying forever in the face of all other errors.
 // You will have to modify this function.
 func (ck *Clerk) Get(key string) string {
-	args := &GetArgs{Key: key, Seq: ck.GetSeq(), Identifier: ck.identifier}
-
+	si := 0
 	for {
+		args := &GetArgs{Key: key, Seq: ck.GetSeq(), Identifier: ck.identifier, ConfigNum: ck.config.Num}
+
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
 			// try each server for the shard.
-			for si := 0; si < len(servers); si++ {
+			for {
 				srv := ck.make_end(servers[si])
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", args, &reply)
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
+					// 正常完成请求
+					ClientLog("请求: Get(%v)正常完成: Seq=%v, Identifier=%v, ConfigNum=%v, result=%v", args.Key, args.Seq, args.Identifier, args.ConfigNum, reply.Value)
 					return reply.Value
-				}
-				if ok && (reply.Err == ErrWrongGroup) {
+				} else if ok && reply.Err == ErrWrongLeader {
+					// 当前节点不是集群的leader
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					si = (si + 1) % len(ck.config.Groups[gid])
+					continue
+				} else if ok && reply.Err == ErrGroupIsInMigrant {
+					// 集群正在迁移配置中, 先sleep, 然后访问
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					time.Sleep(100 * time.Millisecond)
+					continue
+				} else if ok && reply.Err == ErrOldConfigForClient {
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					// 当前client的配置太旧了, 需要break以更新配置
+					break
+				} else if ok && (reply.Err == ErrWrongShardForCurGroup) {
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					// 当前的节点不负责这个key的分片, 需要break以更新配置
 					break
 				}
-				// ... not ok, or ErrWrongLeader
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -102,23 +119,41 @@ func (ck *Clerk) Get(key string) string {
 // shared by Put and Append.
 // You will have to modify this function.
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	args := &PutAppendArgs{Key: key, Value: value, Op: op, Seq: ck.GetSeq(), Identifier: ck.identifier}
-
+	si := 0
 	for {
+		args := &PutAppendArgs{Key: key, Value: value, Op: op, Seq: ck.GetSeq(), Identifier: ck.identifier, ConfigNum: ck.config.Num}
+
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
-			for si := 0; si < len(servers); si++ {
+
+			for {
 				srv := ck.make_end(servers[si])
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", args, &reply)
-				if ok && reply.Err == OK {
+				if ok && (reply.Err == OK) {
+					// 正常完成请求
+					ClientLog("请求: PutAppend(%v)正常完成: Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, args.Seq, args.Identifier, args.ConfigNum)
 					return
-				}
-				if ok && reply.Err == ErrWrongGroup {
+				} else if ok && reply.Err == ErrWrongLeader {
+					// 当前节点不是集群的leader
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v, si=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum, si)
+					si = (si + 1) % len(ck.config.Groups[gid])
+					continue
+				} else if ok && reply.Err == ErrGroupIsInMigrant {
+					// 集群正在迁移配置中, 先sleep, 然后访问
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					time.Sleep(100 * time.Millisecond)
+					continue
+				} else if ok && reply.Err == ErrOldConfigForClient {
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					// 当前client的配置太旧了, 需要break以更新配置
+					break
+				} else if ok && (reply.Err == ErrWrongShardForCurGroup) {
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					// 当前的节点不负责这个key的分片, 需要break以更新配置
 					break
 				}
-				// ... not ok, or ErrWrongLeader
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
