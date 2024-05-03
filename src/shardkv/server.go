@@ -9,17 +9,21 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raft"
+	"6.5840/shardctrler"
 )
 
 type OType string
 
 const (
-	OPGet    OType = "Get"
-	OPPut    OType = "Put"
-	OPAppend OType = "Append"
+	OPGet     OType = "Get"
+	OPPut     OType = "Put"
+	OPAppend  OType = "Append"
+	OPMigrant OType = "Migrant"
 )
 const (
-	HandleOpTimeOut = time.Millisecond * 1000 // 超时为2s
+	HandleOpTimeOut       = time.Millisecond * 2000 // 超时为2s
+	CheckNewConfigTimeOut = time.Millisecond * 2000 // 检查配置更新的超时为2s
+	RPCTimeOut            = time.Millisecond * 30   // RPC重发的超时为2s
 )
 
 type Op struct {
@@ -31,6 +35,7 @@ type Op struct {
 	Val        string
 	Seq        uint64
 	Identifier int64
+	ConfigNum  int // config number
 }
 
 type Result struct {
@@ -38,6 +43,12 @@ type Result struct {
 	Err     Err
 	Value   string
 	ResTerm int
+}
+
+type MigrantData struct {
+	config         shardctrler.Config
+	receive_shards map[int]int // shard_idx->old_shard_gid, 映射到原来拥有这个分片的集群
+	move_shards    map[int]int // shard_idx->new_shard_gid, 映射到新分配的集群
 }
 
 type ShardKV struct {
@@ -48,10 +59,12 @@ type ShardKV struct {
 	dead         int32 // set by Kill()
 	make_end     func(string) *labrpc.ClientEnd
 	gid          int
-	ctrlers      []*labrpc.ClientEnd
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
+	sm          *shardctrler.Clerk
+	config      *shardctrler.Config
+	migrantData map[int]*MigrantData
 	db          map[string]string
 	persister   *raft.Persister
 	lastApplied int                  // 日志中的最高索引
@@ -150,10 +163,61 @@ func (kv *ShardKV) DBExecute(op *Op) (res Result) {
 	}
 	return
 }
+func (kv *ShardKV) isConfigLegal(opArgs *Op) (legal bool, res Result) {
+	// 调用时必须持有锁
+	// legal = true
+	// if opArgs.OpType == OPMigrant {
+	// 	return
+	// }
+
+	// kv.confMu.Lock()
+	// defer kv.confMu.Unlock()
+
+	// if kv.config.Num > opArgs.ConfigNum {
+	// 	legal = false
+	// 	res.Err = ErrOldConfigForClient
+	// 	return
+	// } else if kv.config.Num < opArgs.ConfigNum {
+	// 	legal = false
+	// 	res.Err = ErrGroupIsInMigrant
+	// 	return
+	// } else {
+	// 	shard := key2shard(opArgs.Key)
+	// 	if kv.config.Shards[shard] != kv.gid {
+	// 		legal = false
+	// 		res.Err = ErrWrongShardForCurGroup
+	// 		ServerLog(kv.gid, "server %v 所属gid = %v, key所属的分片为%v, 而配置文件的映射为: %+v", kv.me, kv.gid, shard, kv.config.Shards)
+
+	// 		return
+	// 	}
+	// }
+	legal = true
+	return
+}
+
+func (kv *ShardKV) HandleMigrantOp(opArgs *Op) (res Result) {
+	_, _, isLeader := kv.rf.Start(*opArgs)
+	if !isLeader {
+		ServerLog(kv.gid, "server %v HandleMigrantOp: 拒绝 %s 请求: (%v, %v), 不是 Leader", kv.me, opArgs.OpType, opArgs.Key, opArgs.Val)
+		res.Err = ErrWrongLeader
+		return
+	}
+	res.Err = OK
+	return
+}
 
 func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
 	// 先判断是否有历史记录
 	kv.mu.Lock()
+	configLegal, configRes := kv.isConfigLegal(opArgs)
+	if !configLegal {
+		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 配置冲突:%v\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, configRes.Err)
+
+		kv.mu.Unlock()
+		res.Err = configRes.Err
+		return
+	}
+	// 先判断是否有历史记录
 	if hisMap, exist := kv.historyMap[opArgs.Identifier]; exist && hisMap.LastSeq == opArgs.Seq {
 		kv.mu.Unlock()
 		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 从历史记录返回\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val)
@@ -165,7 +229,7 @@ func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
 
 	startIndex, startTerm, isLeader := kv.rf.Start(*opArgs)
 	if !isLeader {
-		ServerLog(kv.gid, "server %v 拒绝 %s 请求: (%v, %v), 不是 Leader", kv.me, opArgs.OpType, opArgs.Key, opArgs.Val)
+		ServerLog(kv.gid, "server %v HandleOp: 拒绝 %s 请求: (%v, %v), 不是 Leader", kv.me, opArgs.OpType, opArgs.Key, opArgs.Val)
 		return Result{Err: ErrWrongLeader, Value: ""}
 	}
 
@@ -188,7 +252,7 @@ func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
 	select {
 	case <-time.After(HandleOpTimeOut):
 		res.Err = ErrHandleOpTimeOut
-		ServerLog(kv.gid, "server %v identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
+		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
 		return
 	case msg, success := <-newCh:
 		if success && msg.ResTerm == startTerm {
@@ -213,7 +277,7 @@ func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
-	opArgs := &Op{OpType: OPGet, Seq: args.Seq, Key: args.Key, Identifier: args.Identifier}
+	opArgs := &Op{OpType: OPGet, Seq: args.Seq, Key: args.Key, Identifier: args.Identifier, ConfigNum: args.ConfigNum}
 
 	res := kv.HandleOp(opArgs)
 	reply.Err = res.Err
@@ -222,7 +286,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
-	opArgs := &Op{Seq: args.Seq, Key: args.Key, Val: args.Value, Identifier: args.Identifier}
+	opArgs := &Op{Seq: args.Seq, Key: args.Key, Val: args.Value, Identifier: args.Identifier, ConfigNum: args.ConfigNum}
 	if args.Op == "Put" {
 		opArgs.OpType = OPPut
 	} else {
@@ -249,12 +313,99 @@ func (kv *ShardKV) killed() bool {
 	return z == 1
 }
 
+func (kv *ShardKV) handleNewConfig(newConfig *shardctrler.Config) int {
+	if _, exist := kv.migrantData[newConfig.Num]; exist {
+		ServerLog(kv.me, "handleNewConfig: 已经存在的配置更新请求")
+		return -1 // 已经有这个新的配置项的记录了吗这是一个重复的请求
+	}
+
+	kv.migrantData[newConfig.Num] = &MigrantData{}
+	kv.migrantData[newConfig.Num].config = *newConfig
+
+	// 调用这个函数必须持有锁
+	receive_shards := make(map[int]int) // shard_idx->old_shard_gid, 映射到原来拥有这个分片的集群
+	move_shards := make(map[int]int)    // shard_idx->new_shard_gid, 映射到新分配的集群
+	for shard_idx := 0; shard_idx < shardctrler.NShards; shard_idx++ {
+		old_shard_gid := kv.config.Shards[shard_idx]
+		new_shard_gid := newConfig.Shards[shard_idx]
+
+		if old_shard_gid == kv.gid && new_shard_gid != old_shard_gid {
+			// 某个分片被分配给别的集群
+			move_shards[shard_idx] = new_shard_gid
+		} else if new_shard_gid == kv.gid && new_shard_gid != old_shard_gid {
+			// 接受到了一个新的分片
+			receive_shards[shard_idx] = old_shard_gid
+		}
+	}
+
+	kv.migrantData[newConfig.Num].move_shards = move_shards
+	kv.migrantData[newConfig.Num].receive_shards = receive_shards
+
+	return newConfig.Num
+}
+
+func (kv *ShardKV) ConfigChecker() {
+	for !kv.killed() {
+		time.Sleep(CheckNewConfigTimeOut)
+
+		latest_config := kv.sm.Query(-1)
+
+		kv.mu.Lock()
+
+		config_num := -1
+		if kv.config.Num < latest_config.Num {
+			config_num = kv.handleNewConfig(&latest_config)
+		}
+
+		kv.mu.Unlock()
+
+		if config_num > 0 {
+			ServerLog(kv.gid, "server %v ConfigChecker: 发现更新的配置: %+v", kv.me, latest_config)
+			for {
+				migrate_op := &Op{OpType: OPMigrant, Seq: uint64(config_num)}
+				res := kv.HandleMigrantOp(migrate_op)
+				if res.Err == OK || res.Err == ErrWrongLeader {
+					// 让Leader来分发配置更改的log
+					ServerLog(kv.gid, "server %v ConfigChecker: HandleOp返回结果: %v", kv.me, res.Err)
+					break
+				} else {
+					ServerLog(kv.gid, "server %v ConfigChecker: HandleOp返回错误: %v", kv.me, res.Err)
+				}
+				time.Sleep(RPCTimeOut)
+			}
+		}
+	}
+}
+
+func (kv *ShardKV) ApplyMigrantOp(ConfigNum uint64) {
+	// 调用时必须持有锁
+	if _, exist := kv.migrantData[int(ConfigNum)]; exist {
+		kv.config = &kv.migrantData[int(ConfigNum)].config
+		if len(kv.migrantData[int(ConfigNum)].receive_shards) > 0 {
+			// 如果需要从其他分片中获取数据, 启动该go routine
+			go kv.AskForShardData(ConfigNum)
+		}
+	}
+}
+
+func (kv *ShardKV) AskForShardData(ConfigNum uint64) {
+	// 请求新的分片数据
+	ServerLog(kv.me, "AskForShardData: not implemented!")
+}
+
 func (kv *ShardKV) ApplyHandler() {
+	time.Sleep(time.Second * 3)
 	for !kv.killed() {
 		log := <-kv.applyCh
 		if log.CommandValid {
 			op := log.Command.(Op)
 			kv.mu.Lock()
+
+			if op.OpType == OPMigrant {
+				kv.ApplyMigrantOp(op.Seq)
+				kv.mu.Unlock()
+				continue
+			}
 
 			// 如果在follower一侧, 可能这个log包含在快照中, 直接跳过
 			if log.CommandIndex <= kv.lastApplied {
@@ -398,7 +549,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.maxraftstate = maxraftstate
 	kv.make_end = make_end
 	kv.gid = gid
-	kv.ctrlers = ctrlers
+	kv.sm = shardctrler.MakeClerk(ctrlers)
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
@@ -409,14 +560,17 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.db = make(map[string]string)
 	kv.waiCh = make(map[int]*chan Result)
 
-	// Use something like this to talk to the shardctrler:
-	// kv.mck = shardctrler.MakeClerk(kv.ctrlers)
+	cur_config := kv.sm.Query(-1)
+	kv.config = &cur_config
+
+	kv.migrantData = map[int]*MigrantData{}
 
 	// 先在启动时检查是否有快照
 	kv.mu.Lock()
 	kv.LoadSnapShot(persister.ReadSnapshot())
 	kv.mu.Unlock()
 
+	go kv.ConfigChecker()
 	go kv.ApplyHandler()
 
 	return kv

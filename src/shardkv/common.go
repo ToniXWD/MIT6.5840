@@ -14,7 +14,7 @@ import (
 // You will have to modify these definitions.
 //
 
-const DebugServer = false
+const DebugServer = true
 const DebugClient = true
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {

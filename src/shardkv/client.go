@@ -101,10 +101,12 @@ func (ck *Clerk) Get(key string) string {
 					continue
 				} else if ok && reply.Err == ErrOldConfigForClient {
 					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("config=%+v\n", ck.config)
 					// 当前client的配置太旧了, 需要break以更新配置
 					break
 				} else if ok && (reply.Err == ErrWrongShardForCurGroup) {
 					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("config=%+v\n", ck.config)
 					// 当前的节点不负责这个key的分片, 需要break以更新配置
 					break
 				}
@@ -137,20 +139,22 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 					return
 				} else if ok && reply.Err == ErrWrongLeader {
 					// 当前节点不是集群的leader
-					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v, si=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum, si)
+					ClientLog("请求: PutAppend(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v, si=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum, si)
 					si = (si + 1) % len(ck.config.Groups[gid])
 					continue
 				} else if ok && reply.Err == ErrGroupIsInMigrant {
 					// 集群正在迁移配置中, 先sleep, 然后访问
-					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("请求: PutAppend(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
 					time.Sleep(100 * time.Millisecond)
 					continue
 				} else if ok && reply.Err == ErrOldConfigForClient {
-					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("请求: PutAppend(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("config=%+v\n", ck.config)
 					// 当前client的配置太旧了, 需要break以更新配置
 					break
 				} else if ok && (reply.Err == ErrWrongShardForCurGroup) {
-					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("请求: PutAppend(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					ClientLog("config=%+v\n", ck.config)
 					// 当前的节点不负责这个key的分片, 需要break以更新配置
 					break
 				}

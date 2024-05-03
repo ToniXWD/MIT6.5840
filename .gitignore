@@ -8,3 +8,5 @@ src/raft/*.log
 src/kvraft/my_test.go
 src/kvraft/*.log
 src/shardctrler/*.log
+src/shardkv/*.log
+src/shardkv/*.bak
