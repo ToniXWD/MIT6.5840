@@ -313,7 +313,7 @@ func (kv *ShardKV) killed() bool {
 	return z == 1
 }
 
-func (kv *ShardKV) handleNewConfig(newConfig *shardctrler.Config) int {
+func (kv *ShardKV) genNewConfigData(newConfig *shardctrler.Config) int {
 	if _, exist := kv.migrantData[newConfig.Num]; exist {
 		ServerLog(kv.me, "handleNewConfig: 已经存在的配置更新请求")
 		return -1 // 已经有这个新的配置项的记录了吗这是一个重复的请求
@@ -354,7 +354,7 @@ func (kv *ShardKV) ConfigChecker() {
 
 		config_num := -1
 		if kv.config.Num < latest_config.Num {
-			config_num = kv.handleNewConfig(&latest_config)
+			config_num = kv.genNewConfigData(&latest_config)
 		}
 
 		kv.mu.Unlock()
@@ -381,6 +381,12 @@ func (kv *ShardKV) ApplyMigrantOp(ConfigNum uint64) {
 	// 调用时必须持有锁
 	if _, exist := kv.migrantData[int(ConfigNum)]; exist {
 		kv.config = &kv.migrantData[int(ConfigNum)].config
+
+		// 可以删除旧的配置项记录了
+		for i := 0; i < int(ConfigNum); i++ {
+			delete(kv.migrantData, int(ConfigNum))
+		}
+
 		if len(kv.migrantData[int(ConfigNum)].receive_shards) > 0 {
 			// 如果需要从其他分片中获取数据, 启动该go routine
 			go kv.AskForShardData(ConfigNum)
