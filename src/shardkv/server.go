@@ -12,43 +12,10 @@ import (
 	"6.5840/shardctrler"
 )
 
-type OType string
-
-const (
-	OPGet     OType = "Get"
-	OPPut     OType = "Put"
-	OPAppend  OType = "Append"
-	OPMigrant OType = "Migrant"
-)
-const (
-	HandleOpTimeOut       = time.Millisecond * 2000 // 超时为2s
-	CheckNewConfigTimeOut = time.Millisecond * 2000 // 检查配置更新的超时为2s
-	RPCTimeOut            = time.Millisecond * 30   // RPC重发的超时为2s
-)
-
-type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
-	OpType     OType
-	Key        string
-	Val        string
-	Seq        uint64
-	Identifier int64
-	ConfigNum  int // config number
-}
-
-type Result struct {
-	LastSeq uint64
-	Err     Err
-	Value   string
-	ResTerm int
-}
-
-type MigrantData struct {
-	config         shardctrler.Config
-	receive_shards map[int]int // shard_idx->old_shard_gid, 映射到原来拥有这个分片的集群
-	move_shards    map[int]int // shard_idx->new_shard_gid, 映射到新分配的集群
+type ShardDB struct {
+	db         map[string]string // 该分片的数据
+	configNum  int               // 该分片目前的配置序列号
+	historyMap map[int64]*Result // 映射 Identifier->*result
 }
 
 type ShardKV struct {
@@ -64,12 +31,14 @@ type ShardKV struct {
 	// Your definitions here.
 	sm          *shardctrler.Clerk
 	config      *shardctrler.Config
-	migrantData map[int]*MigrantData
-	db          map[string]string
+	prev_config *shardctrler.Config // ! 目前只允许 2 个新老配置文件进行迁移和调整，即配置文件变动不频繁
+	// TODO: 如果配置变更频繁，prev_config 需要更换为一个数组队列
+	// migrantData map[int]*UpdateInfo
+	db          map[int]*ShardDB // shard->db
+	prev_db     map[int]*ShardDB // shard->db, TODO: 如果配置变更频繁，prev_db 需要更换为一个数组队列
 	persister   *raft.Persister
 	lastApplied int                  // 日志中的最高索引
 	waiCh       map[int]*chan Result // 映射 startIndex->ch
-	historyMap  map[int64]*Result    // 映射 Identifier->*result
 }
 
 func (kv *ShardKV) LogInfoReceive(opArgs *Op, logType int) {
@@ -128,9 +97,11 @@ func (kv *ShardKV) LogInfoDBExecute(opArgs *Op, err Err, res string) {
 func (kv *ShardKV) DBExecute(op *Op) (res Result) {
 	// 调用该函数需要持有锁
 	res.LastSeq = op.Seq
+	shard_id := key2shard(op.Key)
+	shard_db := kv.db[shard_id].db // TODO: 需要确保该分片的 db 存在
 	switch op.OpType {
 	case OPGet:
-		val, exist := kv.db[op.Key]
+		val, exist := shard_db[op.Key]
 		if exist {
 			kv.LogInfoDBExecute(op, "", val)
 			res.Err = OK
@@ -143,55 +114,24 @@ func (kv *ShardKV) DBExecute(op *Op) (res Result) {
 			return
 		}
 	case OPPut:
-		kv.db[op.Key] = op.Val
-		kv.LogInfoDBExecute(op, "", kv.db[op.Key])
+		shard_db[op.Key] = op.Val
+		kv.LogInfoDBExecute(op, "", shard_db[op.Key])
 		res.Err = OK
 		return
 	case OPAppend:
-		val, exist := kv.db[op.Key]
+		val, exist := shard_db[op.Key]
 		if exist {
-			kv.db[op.Key] = val + op.Val
-			kv.LogInfoDBExecute(op, "", kv.db[op.Key])
+			shard_db[op.Key] = val + op.Val
+			kv.LogInfoDBExecute(op, "", shard_db[op.Key])
 			res.Err = OK
 			return
 		} else {
-			kv.db[op.Key] = op.Val
-			kv.LogInfoDBExecute(op, "", kv.db[op.Key])
+			shard_db[op.Key] = op.Val
+			kv.LogInfoDBExecute(op, "", shard_db[op.Key])
 			res.Err = OK
 			return
 		}
 	}
-	return
-}
-func (kv *ShardKV) isConfigLegal(opArgs *Op) (legal bool, res Result) {
-	// 调用时必须持有锁
-	// legal = true
-	// if opArgs.OpType == OPMigrant {
-	// 	return
-	// }
-
-	// kv.confMu.Lock()
-	// defer kv.confMu.Unlock()
-
-	// if kv.config.Num > opArgs.ConfigNum {
-	// 	legal = false
-	// 	res.Err = ErrOldConfigForClient
-	// 	return
-	// } else if kv.config.Num < opArgs.ConfigNum {
-	// 	legal = false
-	// 	res.Err = ErrGroupIsInMigrant
-	// 	return
-	// } else {
-	// 	shard := key2shard(opArgs.Key)
-	// 	if kv.config.Shards[shard] != kv.gid {
-	// 		legal = false
-	// 		res.Err = ErrWrongShardForCurGroup
-	// 		ServerLog(kv.gid, "server %v 所属gid = %v, key所属的分片为%v, 而配置文件的映射为: %+v", kv.me, kv.gid, shard, kv.config.Shards)
-
-	// 		return
-	// 	}
-	// }
-	legal = true
 	return
 }
 
@@ -206,40 +146,69 @@ func (kv *ShardKV) HandleMigrantOp(opArgs *Op) (res Result) {
 	return
 }
 
+// 检查分片配置文件序列号和分片是否合法
+// 必须持有锁
+func (kv *ShardKV) isReqLegal(opArgs *Op) (bool, *Result) {
+	if kv.config.Shards[opArgs.Shard] != kv.gid {
+		ServerLog(kv.gid, "server %v isReqLegal: identifier %v Seq %v 的请求: key=%v, 当前配置: %+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.Key, kv.config)
+		return false, &Result{Err: ErrWrongShardForCurGroup}
+	}
+	if kv.db[opArgs.Shard] == nil {
+		return false, &Result{Err: ErrKVWaitForArriving} // 分片的的 kv 数据还没有从其他集群复制过来
+	}
+	return true, nil
+}
+
 func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
-	// 先判断是否有历史记录
-	kv.mu.Lock()
-	configLegal, configRes := kv.isConfigLegal(opArgs)
+	// 先查询次请求是否合法 (主要是当前集群是否负责处理该分片，以及配置序列号的校验)
+	kv.mu.Lock() // TODO: 是否考虑专门为配置文件设一把锁
+	configLegal, configRes := kv.isReqLegal(opArgs)
 	if !configLegal {
-		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 配置冲突:%v\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, configRes.Err)
+		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 配置冲突:%v, 当前配置序列号: %v, 请求的配置序列号: %v\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, configRes.Err, kv.config.Num, opArgs.ConfigNum)
 
 		kv.mu.Unlock()
 		res.Err = configRes.Err
 		return
 	}
 	// 先判断是否有历史记录
-	if hisMap, exist := kv.historyMap[opArgs.Identifier]; exist && hisMap.LastSeq == opArgs.Seq {
+	hisRes := kv.queryHistory(opArgs)
+	if hisRes != nil {
 		kv.mu.Unlock()
-		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 从历史记录返回\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val)
-		return *hisMap
+		return *hisRes
 	}
-	kv.mu.Unlock()
 
 	ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 准备调用Start\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val)
 
+	// 等待 raft 同步 log
+	kv.mu.Unlock()
+	return kv.raftExecute(opArgs)
+}
+
+// 调用该函数时必须持有锁
+func (kv *ShardKV) queryHistory(opArgs *Op) *Result {
+	shard_id := key2shard(opArgs.Key)
+	if hisMap, exist := kv.db[shard_id].historyMap[opArgs.Identifier]; exist && hisMap.LastSeq == opArgs.Seq {
+		ServerLog(kv.gid, "server %v queryHistory: identifier %v Seq %v 的请求: %s(%v, %v) 从历史记录返回\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val)
+		return hisMap
+	}
+	return nil
+}
+
+// 完成一个 raft 的 log 的同步
+// 该函数自己会申请锁，调用时不需要锁
+func (kv *ShardKV) raftExecute(opArgs *Op) (res Result) {
 	startIndex, startTerm, isLeader := kv.rf.Start(*opArgs)
 	if !isLeader {
-		ServerLog(kv.gid, "server %v HandleOp: 拒绝 %s 请求: (%v, %v), 不是 Leader", kv.me, opArgs.OpType, opArgs.Key, opArgs.Val)
+		ServerLog(kv.gid, "server %v raftExecute: 拒绝 %s 请求: (%v, %v), 不是 Leader", kv.me, opArgs.OpType, opArgs.Key, opArgs.Val)
 		return Result{Err: ErrWrongLeader, Value: ""}
 	}
-
 	kv.mu.Lock()
 
-	// 直接覆盖之前记录的chan
+	// 直接覆盖之前记录的 chan
 	newCh := make(chan Result)
 	kv.waiCh[startIndex] = &newCh
-	ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v 的请求: %s(%v, %v) 新建管道: %p\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, &newCh)
-	kv.mu.Unlock() // Start函数耗时较长, 先解锁
+	ServerLog(kv.gid, "server %v raftExecute: identifier %v Seq %v 的请求: %s(%v, %v) 新建管道: %p\n", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, &newCh)
+	kv.mu.Unlock() // Start 函数耗时较长，先解锁
 
 	defer func() {
 		kv.mu.Lock()
@@ -248,26 +217,34 @@ func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
 		kv.mu.Unlock()
 	}()
 
+	res = kv.waitChOrTimeout(startTerm, startIndex, opArgs)
+	return res
+}
+
+// 从通道中收取一个 Result
+// 调用时不能持有锁
+func (kv *ShardKV) waitChOrTimeout(startTerm, startIndex int, opArgs *Op) (res Result) {
+	newCh := kv.waiCh[startIndex]
 	// 等待消息到达或超时
 	select {
 	case <-time.After(HandleOpTimeOut):
 		res.Err = ErrHandleOpTimeOut
-		ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
+		ServerLog(kv.gid, "server %v waitChOrTimeout: identifier %v Seq %v: 超时", kv.me, opArgs.Identifier, opArgs.Seq)
 		return
-	case msg, success := <-newCh:
+	case msg, success := <-*newCh:
 		if success && msg.ResTerm == startTerm {
 			res = msg
-			ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v: HandleOp 成功, %s(%v, %v), res=%v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, res.Value)
+			ServerLog(kv.gid, "server %v waitChOrTimeout: identifier %v Seq %v: HandleOp 成功, %s(%v, %v), res=%v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key, opArgs.Val, res.Value)
 			return
 		} else if !success {
-			// 通道已经关闭, 有另一个协程收到了消息 或 通道被更新的RPC覆盖
-			// TODO: 是否需要判断消息到达时自己已经不是leader了?
-			ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v, args.Key=%+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key)
+			// 通道已经关闭，有另一个协程收到了消息 或 通道被更新的 RPC 覆盖
+			// TODO: 是否需要判断消息到达时自己已经不是 leader 了？
+			ServerLog(kv.gid, "server %v waitChOrTimeout: identifier %v Seq %v: 通道已经关闭, 有另一个协程收到了消息 或 更新的RPC覆盖, args.OpType=%v, args.Key=%+v", kv.me, opArgs.Identifier, opArgs.Seq, opArgs.OpType, opArgs.Key)
 			res.Err = ErrChanClose
 			return
 		} else {
-			// term与一开始不匹配, 说明这个Leader可能过期了
-			ServerLog(kv.gid, "server %v HandleOp: identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", kv.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
+			// term 与一开始不匹配，说明这个 Leader 可能过期了
+			ServerLog(kv.gid, "server %v waitChOrTimeout: identifier %v Seq %v: term与一开始不匹配, 说明这个Leader可能过期了, res.ResTerm=%v, startTerm=%+v", kv.me, opArgs.Identifier, opArgs.Seq, res.ResTerm, startTerm)
 			res.Err = ErrLeaderOutDated
 			res.Value = ""
 			return
@@ -277,7 +254,8 @@ func (kv *ShardKV) HandleOp(opArgs *Op) (res Result) {
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
-	opArgs := &Op{OpType: OPGet, Seq: args.Seq, Key: args.Key, Identifier: args.Identifier, ConfigNum: args.ConfigNum}
+	shard_id := key2shard(args.Key)
+	opArgs := &Op{OpType: OPGet, Shard: shard_id, Seq: args.Seq, Key: args.Key, Identifier: args.Identifier, ConfigNum: args.ConfigNum}
 
 	res := kv.HandleOp(opArgs)
 	reply.Err = res.Err
@@ -286,7 +264,8 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
-	opArgs := &Op{Seq: args.Seq, Key: args.Key, Val: args.Value, Identifier: args.Identifier, ConfigNum: args.ConfigNum}
+	shard_id := key2shard(args.Key)
+	opArgs := &Op{Key: args.Key, Seq: args.Seq, Shard: shard_id, Val: args.Value, Identifier: args.Identifier, ConfigNum: args.ConfigNum}
 	if args.Op == "Put" {
 		opArgs.OpType = OPPut
 	} else {
@@ -296,6 +275,300 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	res := kv.HandleOp(opArgs)
 
 	reply.Err = res.Err
+}
+
+func (kv *ShardKV) AsShardRpc(args *AskShardArgs, reply *AskShardReply) {
+	reply.ConfigNum = kv.config.Num
+
+	if args.ConfigNum != kv.config.Num {
+		// 配置序号不同
+		reply.Err = ErrWrongConfNum
+		return
+	}
+
+	for _, shard_idx := range args.ShardIdx {
+		reply.ShardDBs[shard_idx] = kv.prev_db[shard_idx]
+		// kv.prev_db[shard_idx]=nil // 如果考虑到 RPC 失败，还需要保留旧的 kv.prev_db[shard_idx]
+	}
+	reply.Err = OK
+}
+
+// FIXME: 这个函数可能需要修改
+func (kv *ShardKV) sendAskShardRpc(ConfigNum uint64, old_gid int, shardIdx []int) (*AskShardReply, bool) {
+	var servers []string
+	ok := false
+	if servers, ok = kv.config.Groups[old_gid]; !ok {
+		ServerLog(kv.gid, "server %v sendAsShardRpc: 获取集群信息错误, gid= %v", kv.me, old_gid)
+		return nil, false
+	}
+
+	args := &AskShardArgs{
+		ConfigNum: int(ConfigNum),
+		ShardIdx:  shardIdx,
+		SourceGid: kv.gid,
+	}
+	si := 0
+	for {
+		target_end := kv.make_end(servers[si])
+		var reply AskShardReply
+		ok := target_end.Call("ShardKV.AsShardRpc", args, &reply)
+		if ok && (reply.Err == OK) {
+			// 正常完成请求
+			ServerLog(kv.gid, "请求: sendAsShardRpc 正常完成: remote gid=%v, remote server=%v, ConfigNum=%v, shardIdx=%v", old_gid, servers[si], ConfigNum, shardIdx)
+			return &reply, true
+		} else if ok && reply.Err == ErrWrongConfNum {
+			if reply.ConfigNum > kv.config.Num {
+				// 如果接收者返回的配置序号比当前配置序号新，则说明接收者已经是最新的配置
+				// 则此时的配置更新请求已经可以作废
+				return nil, true
+			} else {
+				// 等待一会后重试
+				time.Sleep(RPCTimeOut)
+			}
+		}
+		si = (si + 1) % len(servers)
+	}
+}
+
+func (kv *ShardKV) AskForShard(gid int, shard_idxs []int) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	reply, ok := kv.sendAskShardRpc(uint64(kv.config.Num), gid, shard_idxs)
+
+	if ok {
+		for shardIdx, shardDB := range reply.ShardDBs {
+			kv.db[shardIdx] = shardDB
+		}
+	}
+}
+
+// 调用时必须持有锁
+func (kv *ShardKV) HandleNewConf(op *Op) {
+	// TODO: 实现这个函数
+	latest_config := op.NewConfig
+	if latest_config.Num <= kv.config.Num {
+		// 如果当前配置已经是最新的，则不需要更新
+		return
+	}
+
+	// TODO: 需要判断 prev_config 是否已经完全完成了迁移任务，这里假设已经完成
+	kv.prev_config = kv.config
+	kv.config = latest_config
+	kv.prev_db = kv.db
+	kv.db = make(map[int]*ShardDB)
+
+	if kv.prev_config.Num == 0 {
+		// 序号为 0 的是初始配置文件，里面没有分片信息，不需要迁移
+		// 但需要初始化分配的数据库使其不为 nil
+		kv.initShardDB(kv.config)
+		return
+	}
+
+	gshardIdxs := make(map[int][]int) // gid -> shard_idxs
+
+	for shard_idx := 0; shard_idx < shardctrler.NShards; shard_idx++ {
+		if kv.prev_config.Shards[shard_idx] == kv.gid && kv.config.Shards[shard_idx] == kv.gid {
+			// 如果当前分片在两个配置文件中都负责，则不需要迁移数据
+			kv.db[shard_idx] = deepCopyShardDB(kv.prev_db[shard_idx], true)
+			kv.prev_db[shard_idx] = nil
+		} else if kv.prev_config.Shards[shard_idx] != kv.gid && kv.config.Shards[shard_idx] == kv.gid {
+			// 新配置文件负责但老配置文件不负责，需要迁移数据
+			kv.db[shard_idx] = nil
+			gshardIdxs[kv.prev_config.Shards[shard_idx]] = append(gshardIdxs[kv.prev_config.Num], shard_idx)
+		} else {
+			// 在新配置文件中不负责
+			kv.db[shard_idx] = nil
+		}
+	}
+
+	for gid, shard_idxs := range gshardIdxs {
+		// 开启数据迁移请求的 RPC
+		go kv.AskForShard(gid, shard_idxs)
+	}
+}
+
+// 不需要持有锁
+func (kv *ShardKV) ConfigChecker() {
+	for !kv.killed() {
+		// 只有 leader 需要检查更新的配置
+		if _, isLeader := kv.rf.GetState(); !isLeader {
+			time.Sleep(CheckNewConfigTimeOut)
+			continue
+		}
+
+		time.Sleep(CheckNewConfigTimeOut)
+
+		latest_config := kv.sm.Query(-1)
+
+		need_update := false
+
+		kv.mu.Lock()
+		if kv.config.Num < latest_config.Num {
+			need_update = true
+		}
+
+		kv.mu.Unlock()
+
+		if need_update {
+			ServerLog(kv.gid, "server %v ConfigChecker: 发现更新的配置: %+v", kv.me, latest_config)
+			for {
+				migrate_op := &Op{OpType: OPNewConf, NewConfig: &latest_config}
+				res := kv.HandleMigrantOp(migrate_op)
+				if res.Err == OK || res.Err == ErrWrongLeader {
+					// 让 Leader 来分发配置更改的 log
+					ServerLog(kv.gid, "server %v ConfigChecker: HandleOp返回结果: %v", kv.me, res.Err)
+					break
+				} else {
+					ServerLog(kv.gid, "server %v ConfigChecker: HandleOp返回错误: %v", kv.me, res.Err)
+				}
+				time.Sleep(RPCTimeOut)
+			}
+		}
+	}
+}
+
+func (kv *ShardKV) ApplyHandler() {
+	time.Sleep(time.Second * 3)
+	for !kv.killed() {
+		log := <-kv.applyCh
+		if log.CommandValid {
+			op := log.Command.(Op)
+			kv.mu.Lock()
+
+			switch op.OpType {
+			case OPNewConf:
+				if kv.config.Num >= op.NewConfig.Num {
+					// 如果当前配置已经是最新的，则不需要更新
+					kv.mu.Unlock()
+					continue
+				}
+				kv.HandleNewConf(&op)
+				kv.mu.Unlock()
+				continue
+
+			default:
+				// 如果在 follower 一侧，可能这个 log 包含在快照中，直接跳过
+				if log.CommandIndex <= kv.lastApplied {
+					kv.mu.Unlock()
+					continue
+				}
+
+				kv.lastApplied = log.CommandIndex
+
+				// 需要判断这个 log 是否需要被再次应用
+				var res Result
+
+				needApply := false
+				shard_id := key2shard(op.Key)
+				shard_db := kv.db[shard_id]
+				if hisMap, exist := shard_db.historyMap[op.Identifier]; exist {
+					if hisMap.LastSeq == op.Seq {
+						// 历史记录存在且 Seq 相同，直接套用历史记录
+						res = *hisMap
+					} else if hisMap.LastSeq < op.Seq {
+						// 否则新建
+						needApply = true
+					}
+				} else {
+					// 历史记录不存在
+					needApply = true
+				}
+
+				if needApply {
+					// 执行 log
+					res = kv.DBExecute(&op)
+					res.ResTerm = log.SnapshotTerm
+
+					// 更新历史���录
+					kv.db[shard_id].historyMap[op.Identifier] = &res
+				}
+
+				// Leader 还需要额外通知 handler 处理 clerk 回复
+				ch, exist := kv.waiCh[log.CommandIndex]
+				if exist {
+					kv.mu.Unlock()
+					// 发送消息
+					func() {
+						defer func() {
+							if recover() != nil {
+								// 如果这里有 panic，是因为通道关闭
+								ServerLog(kv.gid, "leader %v ApplyHandler: 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
+							}
+						}()
+						res.ResTerm = log.SnapshotTerm
+
+						*ch <- res
+					}()
+					kv.mu.Lock()
+				}
+
+				// 每收到一个 log 就检测是否需要生成快照
+				if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/100*95 {
+					// 当达到 95% 容量时需要生成快照
+					snapShot := kv.GenSnapShot()
+					kv.rf.Snapshot(log.CommandIndex, snapShot)
+				}
+				kv.mu.Unlock()
+			}
+
+		} else if log.SnapshotValid {
+			// 日志项是一个快照
+			kv.mu.Lock()
+			if log.SnapshotIndex >= kv.lastApplied {
+				kv.LoadSnapShot(log.Snapshot)
+				kv.lastApplied = log.SnapshotIndex
+			}
+			kv.mu.Unlock()
+		}
+	}
+}
+
+func (kv *ShardKV) GenSnapShot() []byte {
+	// 调用时必须持有锁 mu
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	e.Encode(kv.db)
+
+	serverState := w.Bytes()
+	return serverState
+}
+
+func (kv *ShardKV) LoadSnapShot(snapShot []byte) {
+	// 调用时必须持有锁 mu
+	if len(snapShot) == 0 || snapShot == nil {
+		ServerLog(kv.gid, "server %v LoadSnapShot: 快照为空", kv.me)
+		return
+	}
+
+	r := bytes.NewBuffer(snapShot)
+	d := labgob.NewDecoder(r)
+
+	tmpDB := make(map[int]*ShardDB)
+	tmpHistoryMap := make(map[int64]*Result)
+	if d.Decode(&tmpDB) != nil ||
+		d.Decode(&tmpHistoryMap) != nil {
+		ServerLog(kv.gid, "server %v LoadSnapShot 加载快照失败\n", kv.me)
+	} else {
+		kv.db = tmpDB
+		ServerLog(kv.gid, "server %v LoadSnapShot 加载快照成功\n", kv.me)
+	}
+}
+
+func (kv *ShardKV) initShardDB(conf *shardctrler.Config) {
+	for shard_idx := 0; shard_idx < shardctrler.NShards; shard_idx++ {
+		if conf.Shards[shard_idx] == kv.gid {
+			shardDB := &ShardDB{
+				db:         make(map[string]string),
+				configNum:  conf.Num,
+				historyMap: make(map[int64]*Result),
+			}
+			kv.db[shard_idx] = shardDB
+		} else {
+			kv.db[shard_idx] = nil
+		}
+	}
 }
 
 // the tester calls Kill() when a ShardKV instance won't
@@ -311,212 +584,6 @@ func (kv *ShardKV) Kill() {
 func (kv *ShardKV) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
-}
-
-func (kv *ShardKV) genNewConfigData(newConfig *shardctrler.Config) int {
-	if _, exist := kv.migrantData[newConfig.Num]; exist {
-		ServerLog(kv.me, "handleNewConfig: 已经存在的配置更新请求")
-		return -1 // 已经有这个新的配置项的记录了吗这是一个重复的请求
-	}
-
-	kv.migrantData[newConfig.Num] = &MigrantData{}
-	kv.migrantData[newConfig.Num].config = *newConfig
-
-	// 调用这个函数必须持有锁
-	receive_shards := make(map[int]int) // shard_idx->old_shard_gid, 映射到原来拥有这个分片的集群
-	move_shards := make(map[int]int)    // shard_idx->new_shard_gid, 映射到新分配的集群
-	for shard_idx := 0; shard_idx < shardctrler.NShards; shard_idx++ {
-		old_shard_gid := kv.config.Shards[shard_idx]
-		new_shard_gid := newConfig.Shards[shard_idx]
-
-		if old_shard_gid == kv.gid && new_shard_gid != old_shard_gid {
-			// 某个分片被分配给别的集群
-			move_shards[shard_idx] = new_shard_gid
-		} else if new_shard_gid == kv.gid && new_shard_gid != old_shard_gid {
-			// 接受到了一个新的分片
-			receive_shards[shard_idx] = old_shard_gid
-		}
-	}
-
-	kv.migrantData[newConfig.Num].move_shards = move_shards
-	kv.migrantData[newConfig.Num].receive_shards = receive_shards
-
-	return newConfig.Num
-}
-
-func (kv *ShardKV) ConfigChecker() {
-	for !kv.killed() {
-		time.Sleep(CheckNewConfigTimeOut)
-
-		latest_config := kv.sm.Query(-1)
-
-		kv.mu.Lock()
-
-		config_num := -1
-		if kv.config.Num < latest_config.Num {
-			config_num = kv.genNewConfigData(&latest_config)
-		}
-
-		kv.mu.Unlock()
-
-		if config_num > 0 {
-			ServerLog(kv.gid, "server %v ConfigChecker: 发现更新的配置: %+v", kv.me, latest_config)
-			for {
-				migrate_op := &Op{OpType: OPMigrant, Seq: uint64(config_num)}
-				res := kv.HandleMigrantOp(migrate_op)
-				if res.Err == OK || res.Err == ErrWrongLeader {
-					// 让Leader来分发配置更改的log
-					ServerLog(kv.gid, "server %v ConfigChecker: HandleOp返回结果: %v", kv.me, res.Err)
-					break
-				} else {
-					ServerLog(kv.gid, "server %v ConfigChecker: HandleOp返回错误: %v", kv.me, res.Err)
-				}
-				time.Sleep(RPCTimeOut)
-			}
-		}
-	}
-}
-
-func (kv *ShardKV) ApplyMigrantOp(ConfigNum uint64) {
-	// 调用时必须持有锁
-	if _, exist := kv.migrantData[int(ConfigNum)]; exist {
-		kv.config = &kv.migrantData[int(ConfigNum)].config
-
-		// 可以删除旧的配置项记录了
-		for i := 0; i < int(ConfigNum); i++ {
-			delete(kv.migrantData, int(ConfigNum))
-		}
-
-		if len(kv.migrantData[int(ConfigNum)].receive_shards) > 0 {
-			// 如果需要从其他分片中获取数据, 启动该go routine
-			go kv.AskForShardData(ConfigNum)
-		}
-	}
-}
-
-func (kv *ShardKV) AskForShardData(ConfigNum uint64) {
-	// 请求新的分片数据
-	ServerLog(kv.me, "AskForShardData: not implemented!")
-}
-
-func (kv *ShardKV) ApplyHandler() {
-	time.Sleep(time.Second * 3)
-	for !kv.killed() {
-		log := <-kv.applyCh
-		if log.CommandValid {
-			op := log.Command.(Op)
-			kv.mu.Lock()
-
-			if op.OpType == OPMigrant {
-				kv.ApplyMigrantOp(op.Seq)
-				kv.mu.Unlock()
-				continue
-			}
-
-			// 如果在follower一侧, 可能这个log包含在快照中, 直接跳过
-			if log.CommandIndex <= kv.lastApplied {
-				kv.mu.Unlock()
-				continue
-			}
-
-			kv.lastApplied = log.CommandIndex
-
-			// 需要判断这个log是否需要被再次应用
-			var res Result
-
-			needApply := false
-			if hisMap, exist := kv.historyMap[op.Identifier]; exist {
-				if hisMap.LastSeq == op.Seq {
-					// 历史记录存在且Seq相同, 直接套用历史记录
-					res = *hisMap
-				} else if hisMap.LastSeq < op.Seq {
-					// 否则新建
-					needApply = true
-				}
-			} else {
-				// 历史记录不存在
-				needApply = true
-			}
-
-			if needApply {
-				// 执行log
-				res = kv.DBExecute(&op)
-				res.ResTerm = log.SnapshotTerm
-
-				// 更新历史记录
-				kv.historyMap[op.Identifier] = &res
-			}
-
-			// Leader还需要额外通知handler处理clerk回复
-			ch, exist := kv.waiCh[log.CommandIndex]
-			if exist {
-				kv.mu.Unlock()
-				// 发送消息
-				func() {
-					defer func() {
-						if recover() != nil {
-							// 如果这里有 panic，是因为通道关闭
-							ServerLog(kv.gid, "leader %v ApplyHandler: 发现 identifier %v Seq %v 的管道不存在, 应该是超时被关闭了", kv.me, op.Identifier, op.Seq)
-						}
-					}()
-					res.ResTerm = log.SnapshotTerm
-
-					*ch <- res
-				}()
-				kv.mu.Lock()
-			}
-
-			// 每收到一个log就检测是否需要生成快照
-			if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/100*95 {
-				// 当达到95%容量时需要生成快照
-				snapShot := kv.GenSnapShot()
-				kv.rf.Snapshot(log.CommandIndex, snapShot)
-			}
-			kv.mu.Unlock()
-		} else if log.SnapshotValid {
-			// 日志项是一个快照
-			kv.mu.Lock()
-			if log.SnapshotIndex >= kv.lastApplied {
-				kv.LoadSnapShot(log.Snapshot)
-				kv.lastApplied = log.SnapshotIndex
-			}
-			kv.mu.Unlock()
-		}
-	}
-}
-
-func (kv *ShardKV) GenSnapShot() []byte {
-	// 调用时必须持有锁mu
-	w := new(bytes.Buffer)
-	e := labgob.NewEncoder(w)
-
-	e.Encode(kv.db)
-	e.Encode(kv.historyMap)
-
-	serverState := w.Bytes()
-	return serverState
-}
-
-func (kv *ShardKV) LoadSnapShot(snapShot []byte) {
-	// 调用时必须持有锁mu
-	if len(snapShot) == 0 || snapShot == nil {
-		ServerLog(kv.gid, "server %v LoadSnapShot: 快照为空", kv.me)
-		return
-	}
-
-	r := bytes.NewBuffer(snapShot)
-	d := labgob.NewDecoder(r)
-
-	tmpDB := make(map[string]string)
-	tmpHistoryMap := make(map[int64]*Result)
-	if d.Decode(&tmpDB) != nil ||
-		d.Decode(&tmpHistoryMap) != nil {
-		ServerLog(kv.gid, "server %v LoadSnapShot 加载快照失败\n", kv.me)
-	} else {
-		kv.db = tmpDB
-		kv.historyMap = tmpHistoryMap
-		ServerLog(kv.gid, "server %v LoadSnapShot 加载快照成功\n", kv.me)
-	}
 }
 
 // servers[] contains the ports of the servers in this group.
@@ -562,19 +629,22 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 
 	// Your initialization code here.
 	kv.persister = persister
-	kv.historyMap = make(map[int64]*Result)
-	kv.db = make(map[string]string)
+
+	kv.db = make(map[int]*ShardDB)
+	kv.prev_db = make(map[int]*ShardDB)
+
 	kv.waiCh = make(map[int]*chan Result)
 
-	cur_config := kv.sm.Query(-1)
-	kv.config = &cur_config
-
-	kv.migrantData = map[int]*MigrantData{}
+	// kv.migrantData = map[int]*UpdateInfo{}
 
 	// 先在启动时检查是否有快照
 	kv.mu.Lock()
 	kv.LoadSnapShot(persister.ReadSnapshot())
 	kv.mu.Unlock()
+
+	cur_config := kv.sm.Query(-1)
+	kv.config = &cur_config
+	kv.initShardDB(&cur_config) // 初始化分片数据库，只初始化当前节点负责的分片，其他分片为 nil
 
 	go kv.ConfigChecker()
 	go kv.ApplyHandler()
