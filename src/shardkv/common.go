@@ -138,24 +138,24 @@ type Result struct {
 // 复制 db 中的数据
 func deepCopyShardDB(oldDB *ShardDB, plus bool) *ShardDB {
 	newDB := &ShardDB{
-		db:         make(map[string]string),
-		configNum:  oldDB.configNum,
-		historyMap: make(map[int64]*Result),
+		DB:         make(map[string]string),
+		ConfigNum:  oldDB.ConfigNum,
+		HistoryMap: make(map[int64]*Result),
 	}
 
 	if plus {
-		newDB.configNum++
+		newDB.ConfigNum++
 	}
 
 	// 复制 db 中的数据
-	for k, v := range oldDB.db {
-		newDB.db[k] = v
+	for k, v := range oldDB.DB {
+		newDB.DB[k] = v
 	}
 
 	// 复制历史记录
-	for id, res := range oldDB.historyMap {
+	for id, res := range oldDB.HistoryMap {
 		newRes := *res // 复制 Result 结构体
-		newDB.historyMap[id] = &newRes
+		newDB.HistoryMap[id] = &newRes
 	}
 
 	return newDB
