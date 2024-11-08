@@ -109,6 +109,10 @@ func (ck *Clerk) Get(key string) string {
 					ClientLog("config=%+v\n", ck.config)
 					// 当前的节点不负责这个 key 的分片，需要 break 以更新配置
 					break
+				} else if ok && reply.Err == ErrKVWaitForArriving {
+					ClientLog("请求: Get(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					// 当前的节点正在迁移数据，需要 break 以更新配置
+					break
 				}
 			}
 		}
@@ -156,6 +160,10 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 					ClientLog("请求: PutAppend(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
 					ClientLog("config=%+v\n", ck.config)
 					// 当前的节点不负责这个 key 的分片，需要 break 以更新配置
+					break
+				} else if ok && reply.Err == ErrKVWaitForArriving {
+					ClientLog("请求: PutAppend(%v)错误: %v, Seq=%v, Identifier=%v, ConfigNum=%v", args.Key, reply.Err, args.Seq, args.Identifier, args.ConfigNum)
+					// 当前的节点正在迁移数据，需要 break 以更新配置
 					break
 				}
 			}

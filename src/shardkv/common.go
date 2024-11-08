@@ -160,3 +160,10 @@ func deepCopyShardDB(oldDB *ShardDB, plus bool) *ShardDB {
 
 	return newDB
 }
+
+type SnapshotData struct {
+	Config      *shardctrler.Config
+	Prev_Config *shardctrler.Config
+	DB          map[int]*ShardDB // shard->db
+	Prev_DB     map[int]*ShardDB // shard->db
+}

@@ -391,13 +391,18 @@ func (kv *ShardKV) HandleNewConf(op *Op) {
 			kv.prev_db[shard_idx] = nil
 		} else if kv.prev_config.Shards[shard_idx] != kv.gid && kv.config.Shards[shard_idx] == kv.gid {
 			// 新配置文件负责但老配置文件不负责，需要迁移数据
+			ServerLog(kv.gid, "server %v HandleNewConf: 需要迁移分片数据: shard_idx=%v", kv.me, shard_idx)
 			kv.db[shard_idx] = nil
-			gshardIdxs[kv.prev_config.Shards[shard_idx]] = append(gshardIdxs[kv.prev_config.Num], shard_idx)
+			gshardIdxs[kv.prev_config.Shards[shard_idx]] = append(gshardIdxs[kv.prev_config.Shards[shard_idx]], shard_idx)
 		} else {
 			// 在新配置文件中不负责
 			kv.db[shard_idx] = nil
 		}
 	}
+
+	ServerLog(kv.gid, "server %v HandleNewConf: 当前配置: %+v", kv.me, kv.config)
+	ServerLog(kv.gid, "server %v HandleNewConf: 旧配置: %+v", kv.me, kv.prev_config)
+	ServerLog(kv.gid, "server %v HandleNewConf: 需要迁移的数据: %+v", kv.me, gshardIdxs)
 
 	for gid, shard_idxs := range gshardIdxs {
 		// 开启数据迁移请求的 RPC
@@ -530,6 +535,7 @@ func (kv *ShardKV) ApplyHandler() {
 				if kv.maxraftstate != -1 && kv.persister.RaftStateSize() >= kv.maxraftstate/100*95 {
 					// 当达到 95% 容量时需要生成快照
 					snapShot := kv.GenSnapShot()
+					ServerLog(kv.gid, "server %v ApplyHandler: 生成快照: %v", kv.me, snapShot)
 					kv.rf.Snapshot(log.CommandIndex, snapShot)
 				}
 				kv.mu.Unlock()
@@ -552,7 +558,17 @@ func (kv *ShardKV) GenSnapShot() []byte {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 
-	e.Encode(kv.db)
+	curData := SnapshotData{
+		DB:          kv.db,
+		Prev_DB:     kv.prev_db,
+		Config:      kv.config,
+		Prev_Config: kv.prev_config,
+	}
+	err := e.Encode(curData)
+	if err != nil {
+		ServerLog(kv.gid, "server %v GenSnapShot 生成快照失败: %v", kv.me, err)
+		ServerLog(kv.gid, "server %v curData: %+v", kv.me, curData)
+	}
 
 	serverState := w.Bytes()
 	return serverState
@@ -568,13 +584,16 @@ func (kv *ShardKV) LoadSnapShot(snapShot []byte) {
 	r := bytes.NewBuffer(snapShot)
 	d := labgob.NewDecoder(r)
 
-	tmpDB := make(map[int]*ShardDB)
-	tmpHistoryMap := make(map[int64]*Result)
-	if d.Decode(&tmpDB) != nil ||
-		d.Decode(&tmpHistoryMap) != nil {
+	curData := SnapshotData{}
+
+	if err := d.Decode(&curData); err != nil {
 		ServerLog(kv.gid, "server %v LoadSnapShot 加载快照失败\n", kv.me)
 	} else {
-		kv.db = tmpDB
+		kv.db = curData.DB
+		kv.prev_db = curData.Prev_DB
+		kv.config = curData.Config
+		kv.prev_config = curData.Prev_Config
+
 		ServerLog(kv.gid, "server %v LoadSnapShot 加载快照成功\n", kv.me)
 	}
 }
@@ -666,7 +685,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.mu.Unlock()
 
 	cur_config := kv.sm.Query(-1)
-	kv.prev_config = nil
+	kv.prev_config = &cur_config
 	kv.config = &cur_config
 	kv.initShardDB(&cur_config) // 初始化分片数据库，只初始化当前节点负责的分片，其他分片为 nil
 
